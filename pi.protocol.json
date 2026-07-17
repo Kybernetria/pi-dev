@@ -1,0 +1,704 @@
+{
+  "protocolVersion": "0.2.0",
+  "nodeId": "pi_dev",
+  "packageId": "pi-dev",
+  "version": "0.1.0",
+  "purpose": "Specialized isolated architect, implementation worker, and source-read-only reviewer agents for caller-selected working directories.",
+  "tags": [
+    "agents",
+    "software-development"
+  ],
+  "agents": {
+    "architect": {
+      "description": "Read-only software architect.",
+      "systemPrompt": {
+        "file": "./prompts/architect.md",
+        "mode": "replace"
+      },
+      "modelHint": {
+        "tier": "reasoning",
+        "thinkingLevel": "high"
+      }
+    },
+    "worker": {
+      "description": "Implementation worker with direct cwd mutation.",
+      "systemPrompt": {
+        "file": "./prompts/worker.md",
+        "mode": "replace"
+      },
+      "modelHint": {
+        "tier": "balanced",
+        "thinkingLevel": "medium"
+      }
+    },
+    "reviewer": {
+      "description": "Source-read-only code reviewer with constrained git/test execution.",
+      "systemPrompt": {
+        "file": "./prompts/reviewer.md",
+        "mode": "replace"
+      },
+      "modelHint": {
+        "tier": "reasoning",
+        "thinkingLevel": "high"
+      }
+    },
+    "security_reviewer": {
+      "description": "Source-read-only security reviewer with constrained git/test execution.",
+      "systemPrompt": {
+        "file": "./prompts/security-reviewer.md",
+        "mode": "replace"
+      },
+      "modelHint": {
+        "tier": "reasoning",
+        "thinkingLevel": "high"
+      }
+    }
+  },
+  "provides": [
+    {
+      "name": "architect",
+      "description": "Analyze a task with a read-only agent and return an implementation architecture and acceptance criteria.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string",
+            "enum": [
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputDepth": {
+            "type": "string",
+            "enum": [
+              "concise",
+              "standard",
+              "detailed"
+            ]
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "summary",
+          "assumptions",
+          "plan",
+          "risks",
+          "acceptanceCriteria",
+          "diagnostics",
+          "message"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "order",
+                "action",
+                "rationale"
+              ],
+              "properties": {
+                "order": {
+                  "type": "integer"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "rationale": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "risk",
+                "mitigation"
+              ],
+              "properties": {
+                "risk": {
+                  "type": "string"
+                },
+                "mitigation": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "execution": {
+        "type": "agent",
+        "agent": "architect"
+      },
+      "effects": [
+        "file_read",
+        "model_network"
+      ]
+    },
+    {
+      "name": "worker",
+      "description": "Implement a task directly in the requested cwd with file mutation, shell, and test capabilities.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string",
+            "enum": [
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "summary",
+          "changedFiles",
+          "tests",
+          "unresolvedIssues",
+          "diagnostics",
+          "message"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "changedFiles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "change"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "change": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "command",
+                "status",
+                "output"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "skipped"
+                  ]
+                },
+                "output": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "unresolvedIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "execution": {
+        "type": "agent",
+        "agent": "worker"
+      },
+      "effects": [
+        "file_read",
+        "file_write",
+        "process_execution",
+        "model_network"
+      ]
+    },
+    {
+      "name": "reviewer",
+      "description": "Review source and git changes without source-edit tools; may inspect diffs and run constrained tests.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string",
+            "enum": [
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "testExpectations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "summary",
+          "verdict",
+          "findings",
+          "testResults",
+          "diagnostics",
+          "message"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "request_changes",
+              "blocked"
+            ]
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "severity",
+                "file",
+                "explanation",
+                "recommendedFix"
+              ],
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "blocker",
+                    "high",
+                    "medium",
+                    "low",
+                    "info"
+                  ]
+                },
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "explanation": {
+                  "type": "string"
+                },
+                "recommendedFix": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "testResults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "command",
+                "status",
+                "output"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "skipped"
+                  ]
+                },
+                "output": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "execution": {
+        "type": "agent",
+        "agent": "reviewer"
+      },
+      "effects": [
+        "file_read",
+        "process_execution",
+        "model_network"
+      ]
+    },
+    {
+      "name": "security_reviewer",
+      "description": "Review source and git changes for security vulnerabilities without source-edit tools; may inspect diffs and run constrained tests.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string",
+            "enum": [
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "testExpectations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "securityFocus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "summary",
+          "verdict",
+          "threatModel",
+          "findings",
+          "testResults",
+          "diagnostics",
+          "message"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "request_changes",
+              "blocked"
+            ]
+          },
+          "threatModel": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "asset",
+                "threat",
+                "mitigation"
+              ],
+              "properties": {
+                "asset": {
+                  "type": "string"
+                },
+                "threat": {
+                  "type": "string"
+                },
+                "mitigation": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "severity",
+                "area",
+                "file",
+                "exploitability",
+                "explanation",
+                "recommendedFix"
+              ],
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "blocker",
+                    "high",
+                    "medium",
+                    "low",
+                    "info"
+                  ]
+                },
+                "area": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "exploitability": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "low",
+                    "medium",
+                    "high"
+                  ]
+                },
+                "explanation": {
+                  "type": "string"
+                },
+                "recommendedFix": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "testResults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "command",
+                "status",
+                "output"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "skipped"
+                  ]
+                },
+                "output": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "execution": {
+        "type": "agent",
+        "agent": "security_reviewer"
+      },
+      "effects": [
+        "file_read",
+        "process_execution",
+        "model_network"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "name": "pi-dev",
+  "version": "0.1.0",
+  "description": "Isolated architect, worker, and reviewer agents exposed through pi-protocol.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-protocol",
+    "agents"
+  ],
+  "exports": {
+    ".": "./extension.ts",
+    "./runtime": "./src/runtime/run-agent.ts",
+    "./definitions": "./src/roles/index.ts"
+  },
+  "files": [
+    "extension.ts",
+    "pi.protocol.json",
+    "protocol",
+    "src",
+    "test",
+    "tsconfig.json",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./extension.ts"
+    ]
+  },
+  "dependencies": {
+    "@kybernetria/pi-protocol": "file:../pi-protocol/packages/pi-protocol",
+    "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@^0.80.7"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.7",
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.6",
+    "typebox": "^1.0.65",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
