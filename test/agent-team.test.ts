@@ -17,6 +17,11 @@ import type { AgentRunnerInvocation, ChildAgentRunner } from "../src/runtime/run
 const typedManifest = manifest as unknown as PiProtocolManifest;
 
 function outputFor(role: string): string {
+  if (role === "scout") return JSON.stringify({
+    summary: "Located flow", files: [{ path: "src/auth.ts", line: 12, relevance: "Starts token refresh" }],
+    codePaths: [{ from: "src/router.ts", to: "src/auth.ts", relationship: "Calls refresh handler" }],
+    findings: ["Refresh starts in auth.ts"], unresolvedQuestions: [], diagnostics: [], message: "Scout complete.",
+  });
   if (role === "architect") return JSON.stringify({
     summary: "Plan ready", assumptions: [], plan: [{ order: 1, action: "Implement", rationale: "Required" }],
     risks: [], acceptanceCriteria: ["Tests pass"], diagnostics: [], message: "Architecture complete.",
@@ -49,11 +54,12 @@ function register(runner: ChildAgentRunner) {
   return fabric;
 }
 
-test("manifest registers exactly the four public agent provides", () => {
+test("manifest registers exactly the five public agent provides", () => {
   const fabric = register(async (invocation) => outputFor(invocation.role));
   const node = fabric.describeNode("pi_dev");
-  assert.deepEqual(node?.provides.map((provide) => provide.name), ["architect", "worker", "reviewer", "security_reviewer"]);
+  assert.deepEqual(node?.provides.map((provide) => provide.name), ["scout", "architect", "worker", "reviewer", "security_reviewer"]);
   assert.deepEqual(node?.provides.map((provide) => provide.execution), [
+    { type: "agent", agent: "scout" },
     { type: "agent", agent: "architect" },
     { type: "agent", agent: "worker" },
     { type: "agent", agent: "reviewer" },
@@ -64,7 +70,7 @@ test("manifest registers exactly the four public agent provides", () => {
 test("all agent executors return schema-compatible structured output", async () => {
   const cwd = await fixture();
   const fabric = register(async (invocation) => outputFor(invocation.role));
-  for (const provide of ["architect", "worker", "reviewer", "security_reviewer"]) {
+  for (const provide of ["scout", "architect", "worker", "reviewer", "security_reviewer"]) {
     const result = await fabric.invoke({ nodeId: "pi_dev", provide, input: { task: "Do it", cwd } });
     assert.equal(result.ok, true, JSON.stringify(result));
     if (result.ok) assert.equal(typeof (result.output as { message: unknown }).message, "string");
@@ -86,16 +92,40 @@ test("role tool restrictions are enforced in runner configuration", async () => 
   const cwd = await fixture();
   const seen: AgentRunnerInvocation[] = [];
   const fabric = register(async (invocation) => { seen.push(invocation); return outputFor(invocation.role); });
-  for (const provide of ["architect", "worker", "reviewer", "security_reviewer"]) {
+  for (const provide of ["scout", "architect", "worker", "reviewer", "security_reviewer"]) {
     await fabric.invoke({ nodeId: "pi_dev", provide, input: { task: "Inspect", cwd } });
   }
-  assert.deepEqual(seen[0]?.builtinTools, ["read", "grep", "find", "ls"]);
-  assert.equal(seen[0]?.builtinTools.includes("bash"), false);
-  assert.deepEqual(seen[1]?.builtinTools, ["read", "grep", "find", "ls", "bash", "edit", "write"]);
-  assert.deepEqual(seen[2]?.builtinTools, ["read", "grep", "find", "ls"]);
-  assert.deepEqual(seen[2]?.customToolNames, ["review_command"]);
-  assert.deepEqual(seen[3]?.builtinTools, ["read", "grep", "find", "ls"]);
-  assert.deepEqual(seen[3]?.customToolNames, ["review_command"]);
+  const byRole = Object.fromEntries(seen.map((invocation) => [invocation.role, invocation]));
+  assert.deepEqual(byRole.scout?.builtinTools, ["read", "grep", "find", "ls"]);
+  assert.equal(byRole.scout?.builtinTools.includes("bash"), false);
+  assert.deepEqual(byRole.architect?.builtinTools, ["read", "grep", "find", "ls"]);
+  assert.deepEqual(byRole.worker?.builtinTools, ["read", "grep", "find", "ls", "bash", "edit", "write"]);
+  assert.deepEqual(byRole.reviewer?.builtinTools, ["read", "grep", "find", "ls"]);
+  assert.deepEqual(byRole.reviewer?.customToolNames, ["review_command"]);
+  assert.deepEqual(byRole.security_reviewer?.builtinTools, ["read", "grep", "find", "ls"]);
+  assert.deepEqual(byRole.security_reviewer?.customToolNames, ["review_command"]);
+});
+
+test("scout is configured for fast, concise, read-only exploration", async () => {
+  const cwd = await fixture();
+  let seen: AgentRunnerInvocation | undefined;
+  const fabric = register(async (invocation) => { seen = invocation; return outputFor(invocation.role); });
+  const result = await fabric.invoke({
+    nodeId: "pi_dev",
+    provide: "scout",
+    input: { task: "Trace refresh", cwd, scope: ["src/auth"], questions: ["Who calls refresh?"] },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(seen?.thinkingLevel, "minimal");
+  assert.deepEqual(seen?.builtinTools, ["read", "grep", "find", "ls"]);
+  assert.deepEqual(seen?.customToolNames, []);
+  assert.match(seen?.systemPrompt ?? "", /fast software scout/i);
+  assert.match(seen?.systemPrompt ?? "", /strictly read-only/i);
+  assert.match(seen?.systemPrompt ?? "", /keep findings concise/i);
+  assert.match(seen?.prompt ?? "", /src\/auth/);
+  assert.match(seen?.prompt ?? "", /Who calls refresh\?/);
+  assert.deepEqual(manifest.agents.scout.tools, ["read", "grep", "find", "ls"]);
+  assert.equal(manifest.agents.scout.modelHint.tier, "fast");
 });
 
 test("cwd is canonicalized and non-directories are rejected", async () => {

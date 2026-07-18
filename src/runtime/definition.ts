@@ -1,7 +1,7 @@
 import type { AgentRequestBase } from "../types.ts";
 
 export type BuiltinToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
-export type AgentRole = "architect" | "worker" | "reviewer" | "security_reviewer";
+export type AgentRole = "scout" | "architect" | "worker" | "reviewer" | "security_reviewer";
 
 export interface AgentDefinition<Request extends AgentRequestBase, Output> {
   role: AgentRole;

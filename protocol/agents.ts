@@ -1,13 +1,17 @@
 import type { ProtocolAgentExecutor, ProtocolInvocationContext } from "@kybernetria/pi-protocol";
-import { architectDefinition, reviewerDefinition, securityReviewerDefinition, workerDefinition } from "../src/roles/index.ts";
+import { architectDefinition, reviewerDefinition, scoutDefinition, securityReviewerDefinition, workerDefinition } from "../src/roles/index.ts";
 import { piChildAgentRunner } from "../src/runtime/pi-runner.ts";
 import { runAgent, type RunAgentDependencies } from "../src/runtime/run-agent.ts";
-import type { ArchitectRequest, ReviewerRequest, SecurityReviewerRequest, WorkerRequest } from "../src/types.ts";
+import type { ArchitectRequest, ReviewerRequest, ScoutRequest, SecurityReviewerRequest, WorkerRequest } from "../src/types.ts";
 
 export type AgentTeamDependencies = Partial<RunAgentDependencies>;
 
 function dependencies(overrides: AgentTeamDependencies): RunAgentDependencies {
   return { runner: overrides.runner ?? piChildAgentRunner, ...overrides };
+}
+
+export function createScoutAgentExecutor(overrides: AgentTeamDependencies = {}): ProtocolAgentExecutor {
+  return (input: unknown, context?: ProtocolInvocationContext) => runAgent(scoutDefinition, input as ScoutRequest, context, dependencies(overrides));
 }
 
 export function createArchitectAgentExecutor(overrides: AgentTeamDependencies = {}): ProtocolAgentExecutor {
@@ -28,6 +32,7 @@ export function createSecurityReviewerAgentExecutor(overrides: AgentTeamDependen
 
 export function createAgentExecutors(overrides: AgentTeamDependencies = {}): Record<string, ProtocolAgentExecutor> {
   return {
+    scout: createScoutAgentExecutor(overrides),
     architect: createArchitectAgentExecutor(overrides),
     worker: createWorkerAgentExecutor(overrides),
     reviewer: createReviewerAgentExecutor(overrides),

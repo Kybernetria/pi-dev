@@ -10,6 +10,11 @@ export interface AgentRequestBase {
   timeoutMs?: number;
 }
 
+export interface ScoutRequest extends AgentRequestBase {
+  scope?: string[];
+  questions?: string[];
+}
+
 export interface ArchitectRequest extends AgentRequestBase {
   constraints?: string[];
   outputDepth?: "concise" | "standard" | "detailed";
@@ -35,6 +40,14 @@ export interface SecurityReviewerRequest extends ReviewerRequest {
 export interface AgentOutputBase {
   diagnostics: string[];
   message: string;
+}
+
+export interface ScoutOutput extends AgentOutputBase {
+  summary: string;
+  files: Array<{ path: string; line?: number; relevance: string }>;
+  codePaths: Array<{ from: string; to: string; relationship: string }>;
+  findings: string[];
+  unresolvedQuestions: string[];
 }
 
 export interface ArchitectOutput extends AgentOutputBase {

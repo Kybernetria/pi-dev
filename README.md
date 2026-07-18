@@ -1,7 +1,8 @@
 # pi-dev
 
-A Pi extension exposing three isolated software-development agents through **pi-protocol 0.2.0**:
+A Pi extension exposing five isolated software-development agents through **pi-protocol 0.2.0**:
 
+- `pi_dev.scout` — fast, concise, read-only codebase exploration
 - `pi_dev.architect` — read-only analysis and planning
 - `pi_dev.worker` — edits the requested cwd directly and runs tests
 - `pi_dev.reviewer` — source-read-only review with constrained git/test execution
@@ -20,6 +21,10 @@ Add the package to Pi's packages/extensions configuration as appropriate for you
 ## Invoke
 
 Use the generic `protocol` tool:
+
+```json
+{"target":"pi_dev.scout","input":{"task":"Locate the token refresh flow","cwd":"/repo","scope":["src"],"questions":["Where are refresh tokens stored?","Which handler starts renewal?"]}}
+```
 
 ```json
 {"target":"pi_dev.architect","input":{"task":"Plan token refresh support","cwd":"/repo","constraints":["Preserve the public API"],"outputDepth":"detailed"}}
@@ -54,17 +59,18 @@ All roles return strict JSON plus a human-readable `message`. See `pi.protocol.j
 
 A caller can invoke:
 
-1. `architect` to obtain an ordered plan and acceptance criteria.
-2. `worker` with that plan and criteria.
-3. `reviewer` and/or `security_reviewer` against the resulting diff/range.
-4. Optionally, `worker` again with the review findings as `context` and acceptance criteria.
+1. `scout` for quick file locations and code-path context when the implementation area is not yet known.
+2. `architect` to obtain an ordered plan and acceptance criteria.
+3. `worker` with that plan and criteria.
+4. `reviewer` and/or `security_reviewer` against the resulting diff/range.
+5. Optionally, `worker` again with the review findings as `context` and acceptance criteria.
 
 Each invocation creates a fresh in-memory child AgentSession bound to the requested cwd.
 
 ## Safety
 
 - Cwds are resolved to canonical existing directories before session creation.
-- Architect gets only `read`, `grep`, `find`, and `ls`.
+- Scout and architect get only `read`, `grep`, `find`, and `ls`; scout is instructed to search narrowly and return concise, verified findings.
 - Worker gets read/search tools plus `bash`, `edit`, and `write`, and modifies the cwd directly.
 - Reviewer has no general shell or mutation tool. `review_command` uses no shell and only supports constrained git status/diff/show and standard npm/pnpm/yarn/bun test execution. Tests can still create normal build/cache artifacts.
 - Child sessions load no extensions, skills, prompt templates, or themes, preventing recursive self-loading. Project context files may still be read.
@@ -82,7 +88,7 @@ Every request may set `model`, `thinkingLevel`, and `timeoutMs`. If omitted, con
 
 Limits can be configured with `PI_DEV_MAX_PROMPT_CHARS` and `PI_DEV_MAX_RESPONSE_CHARS`.
 
-## Add a fourth agent
+## Add another agent
 
 1. Add its request/output types in `src/types.ts`.
 2. Add a declarative `AgentDefinition` under `src/roles/`, including tool allowlists, prompt, output contract, and validator.

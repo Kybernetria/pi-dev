@@ -3,14 +3,37 @@
   "nodeId": "pi_dev",
   "packageId": "pi-dev",
   "version": "0.1.0",
-  "purpose": "Specialized isolated architect, implementation worker, and source-read-only reviewer agents for caller-selected working directories.",
+  "purpose": "Specialized isolated scout, architect, implementation worker, and source-read-only reviewer agents for caller-selected working directories.",
   "tags": [
     "agents",
     "software-development"
   ],
   "agents": {
+    "scout": {
+      "description": "Fast read-only codebase exploration agent.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "systemPrompt": {
+        "file": "./prompts/scout.md",
+        "mode": "replace"
+      },
+      "modelHint": {
+        "tier": "fast",
+        "thinkingLevel": "minimal"
+      }
+    },
     "architect": {
       "description": "Read-only software architect.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
       "systemPrompt": {
         "file": "./prompts/architect.md",
         "mode": "replace"
@@ -22,6 +45,15 @@
     },
     "worker": {
       "description": "Implementation worker with direct cwd mutation.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "bash",
+        "edit",
+        "write"
+      ],
       "systemPrompt": {
         "file": "./prompts/worker.md",
         "mode": "replace"
@@ -33,6 +65,13 @@
     },
     "reviewer": {
       "description": "Source-read-only code reviewer with constrained git/test execution.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "review_command"
+      ],
       "systemPrompt": {
         "file": "./prompts/reviewer.md",
         "mode": "replace"
@@ -44,6 +83,13 @@
     },
     "security_reviewer": {
       "description": "Source-read-only security reviewer with constrained git/test execution.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "review_command"
+      ],
       "systemPrompt": {
         "file": "./prompts/security-reviewer.md",
         "mode": "replace"
@@ -55,6 +101,145 @@
     }
   },
   "provides": [
+    {
+      "name": "scout",
+      "description": "Quickly locate relevant files, trace code paths, and return concise read-only findings.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string",
+            "enum": [
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "summary",
+          "files",
+          "codePaths",
+          "findings",
+          "unresolvedQuestions",
+          "diagnostics",
+          "message"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "relevance"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "relevance": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "codePaths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "from",
+                "to",
+                "relationship"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "relationship": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unresolvedQuestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "execution": {
+        "type": "agent",
+        "agent": "scout"
+      },
+      "effects": [
+        "file_read",
+        "model_network"
+      ]
+    },
     {
       "name": "architect",
       "description": "Analyze a task with a read-only agent and return an implementation architecture and acceptance criteria.",
