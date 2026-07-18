@@ -13,7 +13,9 @@ import {
 import manifest from "../pi.protocol.json" with { type: "json" };
 import { createAgentExecutors } from "../protocol/agents.ts";
 import { createPiChildAgentSession } from "../src/runtime/pi-runner.ts";
+import type { AgentDefinition } from "../src/runtime/definition.ts";
 import type { AgentRunnerInvocation, ChildAgentRunner } from "../src/runtime/run-agent.ts";
+import { architectDefinition, reviewerDefinition, scoutDefinition, securityReviewerDefinition, workerDefinition } from "../src/roles/index.ts";
 
 const typedManifest = manifest as unknown as PiProtocolManifest;
 
@@ -24,19 +26,22 @@ function outputFor(role: string): string {
     findings: ["Refresh starts in auth.ts"], unresolvedQuestions: [], diagnostics: [], message: "Scout complete.",
   });
   if (role === "architect") return JSON.stringify({
-    summary: "Plan ready", assumptions: [], plan: [{ order: 1, action: "Implement", rationale: "Required" }],
-    risks: [], acceptanceCriteria: ["Tests pass"], diagnostics: [], message: "Architecture complete.",
+    summary: "Plan ready", assumptions: ["Existing API remains stable"], plan: [{ order: 1, action: "Implement", rationale: "Required" }],
+    risks: [{ risk: "Regression", mitigation: "Run tests" }], acceptanceCriteria: ["Tests pass"], diagnostics: [], message: "Architecture complete.",
   });
   if (role === "worker") return JSON.stringify({
     summary: "Implemented", changedFiles: [{ path: "a.ts", change: "Updated" }],
     tests: [{ command: "npm test", status: "passed", output: "ok" }], unresolvedIssues: [], diagnostics: [], message: "Work complete.",
   });
   if (role === "security_reviewer") return JSON.stringify({
-    summary: "Security reviewed", verdict: "approve", threatModel: [], findings: [],
+    summary: "Security reviewed", verdict: "approve",
+    threatModel: [{ asset: "credentials", threat: "disclosure", mitigation: "redaction" }],
+    findings: [{ severity: "low", area: "logging", file: "src/auth.ts", line: 12, exploitability: "low", explanation: "Metadata is logged", recommendedFix: "Redact it" }],
     testResults: [{ command: "npm test", status: "passed", output: "ok" }], diagnostics: [], message: "Security review complete.",
   });
   return JSON.stringify({
-    summary: "Reviewed", verdict: "approve", findings: [],
+    summary: "Reviewed", verdict: "approve",
+    findings: [{ severity: "info", file: "src/auth.ts", line: 12, explanation: "Flow is correct", recommendedFix: "None" }],
     testResults: [{ command: "npm test", status: "passed", output: "ok" }], diagnostics: [], message: "Review complete.",
   });
 }
@@ -67,6 +72,92 @@ test("manifest registers exactly the five public agent provides", () => {
     { type: "agent", agent: "security_reviewer" },
   ]);
 });
+
+test("all provide schemas completely describe their role-specific input and output", () => {
+  const expected = {
+    scout: {
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "scope", "questions"],
+      output: ["summary", "files", "codePaths", "findings", "unresolvedQuestions", "diagnostics", "message"],
+    },
+    architect: {
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "constraints", "outputDepth"],
+      output: ["summary", "assumptions", "plan", "risks", "acceptanceCriteria", "diagnostics", "message"],
+    },
+    worker: {
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "plan", "acceptanceCriteria"],
+      output: ["summary", "changedFiles", "tests", "unresolvedIssues", "diagnostics", "message"],
+    },
+    reviewer: {
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "diff", "commit", "range", "acceptanceCriteria", "testExpectations"],
+      output: ["summary", "verdict", "findings", "testResults", "diagnostics", "message"],
+    },
+    security_reviewer: {
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "diff", "commit", "range", "acceptanceCriteria", "testExpectations", "securityFocus"],
+      output: ["summary", "verdict", "threatModel", "findings", "testResults", "diagnostics", "message"],
+    },
+  } as const;
+
+  for (const provide of typedManifest.provides) {
+    const role = provide.name as keyof typeof expected;
+    assert.deepEqual(Object.keys(provide.inputSchema.properties ?? {}), expected[role].input, `${role} input properties`);
+    assert.deepEqual(Object.keys(provide.outputSchema.properties ?? {}), expected[role].output, `${role} output properties`);
+    assert.deepEqual(provide.inputSchema.required, ["task"], `${role} required inputs`);
+    assert.deepEqual(provide.outputSchema.required, expected[role].output, `${role} required outputs`);
+  }
+});
+
+test("runtime output validation and manifest schemas agree for every role", async () => {
+  const definitions: Record<string, AgentDefinition<any, any>> = {
+    scout: scoutDefinition,
+    architect: architectDefinition,
+    worker: workerDefinition,
+    reviewer: reviewerDefinition,
+    security_reviewer: securityReviewerDefinition,
+  };
+  const invalidate = {
+    scout: (value: any) => { value.files[0].line = 1.5; },
+    architect: (value: any) => { value.plan[0].order = "first"; },
+    worker: (value: any) => { value.tests[0].status = "unknown"; },
+    reviewer: (value: any) => { value.findings[0].severity = "critical"; },
+    security_reviewer: (value: any) => { value.findings[0].exploitability = "certain"; },
+  } as const;
+
+  for (const provide of typedManifest.provides) {
+    const role = provide.name as keyof typeof invalidate;
+    const valid = JSON.parse(outputFor(role));
+    assert.equal(definitions[role].validateOutput(valid), true, `${role} runtime accepts representative output`);
+    assert.equal((await invokeRawAgentOutput(role, valid)).ok, true, `${role} schema accepts representative output`);
+
+    for (const required of provide.outputSchema.required ?? []) {
+      const missing = structuredClone(valid);
+      delete missing[required];
+      assert.equal(definitions[role].validateOutput(missing), false, `${role} runtime requires ${required}`);
+      const result = await invokeRawAgentOutput(role, missing);
+      assert.equal(result.ok, false, `${role} schema requires ${required}`);
+      if (!result.ok) assert.equal(result.error.code, "INVALID_OUTPUT");
+    }
+
+    const malformed = structuredClone(valid);
+    invalidate[role](malformed);
+    assert.equal(definitions[role].validateOutput(malformed), false, `${role} runtime rejects malformed nested output`);
+    const result = await invokeRawAgentOutput(role, malformed);
+    assert.equal(result.ok, false, `${role} schema rejects malformed nested output`);
+    if (!result.ok) assert.equal(result.error.code, "INVALID_OUTPUT");
+  }
+});
+
+async function invokeRawAgentOutput(role: string, output: unknown) {
+  const fabric = createProtocolFabric();
+  registerProtocolManifest(fabric, {
+    manifest: typedManifest,
+    manifestBaseDir: fileURLToPath(new URL("..", import.meta.url)),
+    agentExecutors: Object.fromEntries(typedManifest.provides.map((provide) => [
+      provide.name,
+      async () => provide.name === role ? output : JSON.parse(outputFor(provide.name)),
+    ])),
+  });
+  return fabric.invoke({ nodeId: "pi_dev", provide: role, input: { task: "Validate schema" } });
+}
 
 test("all agent executors return schema-compatible structured output", async () => {
   const cwd = await fixture();
