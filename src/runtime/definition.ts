@@ -9,6 +9,7 @@ export interface AgentDefinition<Request extends AgentRequestBase, Output> {
   systemPrompt: string;
   builtinTools: readonly BuiltinToolName[];
   customToolNames?: readonly string[];
+  defaultModel?: string;
   defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   outputContract: string;
   validateOutput(value: unknown): value is Output;

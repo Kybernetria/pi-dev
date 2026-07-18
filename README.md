@@ -82,8 +82,8 @@ Review tasks and worker tasks can execute project code. Only use trusted reposit
 
 Every request may set `model`, `thinkingLevel`, and `timeoutMs`. If omitted, configuration is resolved in this order:
 
-- Model: `PI_DEV_<ROLE>_MODEL`, then `PI_DEV_MODEL`, then Pi's configured/default available model.
-- Thinking: request value, `PI_DEV_<ROLE>_THINKING`, `PI_DEV_THINKING`, then the role default.
+- Model: request value, `PI_DEV_<ROLE>_MODEL`, `PI_DEV_MODEL`, then the role default (the scout uses `openai-codex/gpt-5.6-luna`); roles without a default use Pi's configured/default available model.
+- Thinking: request value, `PI_DEV_<ROLE>_THINKING`, `PI_DEV_THINKING`, then the role default (the scout uses `low`).
 - Timeout: 10 minutes (maximum accepted request value: 1 hour).
 
 Limits can be configured with `PI_DEV_MAX_PROMPT_CHARS` and `PI_DEV_MAX_RESPONSE_CHARS`.

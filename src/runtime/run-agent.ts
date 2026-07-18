@@ -67,7 +67,10 @@ export async function runAgent<Request extends AgentRequestBase, Output extends 
       ?? parseThinking(process.env[`PI_DEV_${definition.role.toUpperCase()}_THINKING`])
       ?? parseThinking(process.env.PI_DEV_THINKING)
       ?? definition.defaultThinkingLevel;
-    const configuredModel = request.model ?? process.env[`PI_DEV_${definition.role.toUpperCase()}_MODEL`] ?? process.env.PI_DEV_MODEL;
+    const configuredModel = request.model
+      ?? process.env[`PI_DEV_${definition.role.toUpperCase()}_MODEL`]
+      ?? process.env.PI_DEV_MODEL
+      ?? definition.defaultModel;
 
     const raw = await raceWithAbort(dependencies.runner({
       role: definition.role,

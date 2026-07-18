@@ -6,7 +6,8 @@ export const scoutDefinition: AgentDefinition<ScoutRequest, ScoutOutput> = {
   role: "scout",
   description: "Fast read-only codebase exploration agent",
   builtinTools: ["read", "grep", "find", "ls"],
-  defaultThinkingLevel: "minimal",
+  defaultModel: "openai-codex/gpt-5.6-luna",
+  defaultThinkingLevel: "low",
   systemPrompt: loadAgentPrompt("scout"),
   outputContract: `{"summary":"string","files":[{"path":"string","line":1,"relevance":"string"}],"codePaths":[{"from":"string","to":"string","relationship":"string"}],"findings":["string"],"unresolvedQuestions":["string"],"diagnostics":["string"],"message":"concise human-readable findings"}`,
   buildTaskDetails: (request) => ({

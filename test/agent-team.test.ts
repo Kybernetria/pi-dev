@@ -228,7 +228,8 @@ test("scout is configured for fast, concise, read-only exploration", async () =>
     input: { task: "Trace refresh", cwd, scope: ["src/auth"], questions: ["Who calls refresh?"] },
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(seen?.thinkingLevel, "minimal");
+  assert.equal(seen?.model, "openai-codex/gpt-5.6-luna");
+  assert.equal(seen?.thinkingLevel, "low");
   assert.deepEqual(seen?.builtinTools, ["read", "grep", "find", "ls"]);
   assert.deepEqual(seen?.customToolNames, []);
   assert.match(seen?.systemPrompt ?? "", /fast software scout/i);
@@ -238,6 +239,7 @@ test("scout is configured for fast, concise, read-only exploration", async () =>
   assert.match(seen?.prompt ?? "", /Who calls refresh\?/);
   assert.deepEqual(manifest.agents.scout.tools, ["read", "grep", "find", "ls"]);
   assert.equal(manifest.agents.scout.modelHint.tier, "fast");
+  assert.equal(manifest.agents.scout.modelHint.thinkingLevel, "low");
 });
 
 test("cwd is canonicalized and non-directories are rejected", async () => {

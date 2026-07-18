@@ -23,7 +23,7 @@
       },
       "modelHint": {
         "tier": "fast",
-        "thinkingLevel": "minimal"
+        "thinkingLevel": "low"
       }
     },
     "architect": {
