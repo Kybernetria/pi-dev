@@ -1,10 +1,10 @@
 import {
-  AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
+  type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { ChildAgentRunner } from "./run-agent.ts";
@@ -14,11 +14,10 @@ const customToolFactories: Record<string, (cwd: string, signal: AbortSignal) => 
   review_command: createReviewCommandTool,
 };
 
-export const piChildAgentRunner: ChildAgentRunner = async (invocation) => {
+export async function createPiChildAgentSession(invocation: Parameters<ChildAgentRunner>[0]): Promise<AgentSession> {
   const agentDir = getAgentDir();
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
-  const model = invocation.model ? resolveModel(invocation.model, modelRegistry) : undefined;
+  const modelRuntime = await ModelRuntime.create();
+  const model = invocation.model ? resolveModel(invocation.model, modelRuntime) : undefined;
   if (invocation.model && !model) throw new Error(`Model not found or ambiguous: ${invocation.model}`);
 
   const resourceLoader = new DefaultResourceLoader({
@@ -42,8 +41,7 @@ export const piChildAgentRunner: ChildAgentRunner = async (invocation) => {
   const { session } = await createAgentSession({
     cwd: invocation.cwd,
     agentDir,
-    authStorage,
-    modelRegistry,
+    modelRuntime,
     ...(model ? { model } : {}),
     thinkingLevel: invocation.thinkingLevel,
     tools: toolNames,
@@ -51,7 +49,11 @@ export const piChildAgentRunner: ChildAgentRunner = async (invocation) => {
     resourceLoader,
     sessionManager: SessionManager.inMemory(invocation.cwd),
   });
+  return session;
+}
 
+export const piChildAgentRunner: ChildAgentRunner = async (invocation) => {
+  const session = await createPiChildAgentSession(invocation);
   const abortSession = () => { void session.abort(); };
   invocation.signal.addEventListener("abort", abortSession, { once: true });
   try {
@@ -65,10 +67,10 @@ export const piChildAgentRunner: ChildAgentRunner = async (invocation) => {
   }
 };
 
-function resolveModel(reference: string, registry: ModelRegistry): ReturnType<ModelRegistry["find"]> {
+function resolveModel(reference: string, runtime: ModelRuntime): ReturnType<ModelRuntime["getModel"]> {
   const separator = reference.indexOf("/");
-  if (separator > 0) return registry.find(reference.slice(0, separator), reference.slice(separator + 1));
-  const matches = registry.getAll().filter((candidate) => candidate.id === reference);
+  if (separator > 0) return runtime.getModel(reference.slice(0, separator), reference.slice(separator + 1));
+  const matches = runtime.getModels().filter((candidate) => candidate.id === reference);
   return matches.length === 1 ? matches[0] : undefined;
 }
 

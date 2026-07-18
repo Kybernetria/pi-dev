@@ -12,6 +12,7 @@ import {
 } from "@kybernetria/pi-protocol";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import { createAgentExecutors } from "../protocol/agents.ts";
+import { createPiChildAgentSession } from "../src/runtime/pi-runner.ts";
 import type { AgentRunnerInvocation, ChildAgentRunner } from "../src/runtime/run-agent.ts";
 
 const typedManifest = manifest as unknown as PiProtocolManifest;
@@ -104,6 +105,26 @@ test("role tool restrictions are enforced in runner configuration", async () => 
   assert.deepEqual(byRole.reviewer?.customToolNames, ["review_command"]);
   assert.deepEqual(byRole.security_reviewer?.builtinTools, ["read", "grep", "find", "ls"]);
   assert.deepEqual(byRole.security_reviewer?.customToolNames, ["review_command"]);
+});
+
+test("real SDK initializes a scout session with the supported model runtime", async () => {
+  const cwd = await fixture();
+  const session = await createPiChildAgentSession({
+    role: "scout",
+    cwd,
+    prompt: "Inspect the fixture.",
+    systemPrompt: "You are a read-only scout.",
+    builtinTools: ["read", "grep", "find", "ls"],
+    customToolNames: [],
+    thinkingLevel: "minimal",
+    signal: new AbortController().signal,
+  });
+  try {
+    assert.deepEqual(session.agent.state.tools.map((tool) => tool.name), ["read", "grep", "find", "ls"]);
+    assert.ok(session.thinkingLevel === "minimal" || session.thinkingLevel === "off");
+  } finally {
+    session.dispose();
+  }
 });
 
 test("scout is configured for fast, concise, read-only exploration", async () => {
