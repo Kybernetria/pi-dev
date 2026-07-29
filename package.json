@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --preserve-symlinks --import tsx --test test/*.test.ts"
   },
   "pi": {
     "extensions": [
@@ -32,7 +32,7 @@
     ]
   },
   "dependencies": {
-    "@kybernetria/pi-protocol": "file:../pi-protocol/packages/pi-protocol",
+    "@kybernetria/pi-protocol": "^1.0.10",
     "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@^0.80.7"
   },
   "peerDependencies": {

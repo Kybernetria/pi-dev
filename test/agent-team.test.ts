@@ -4,17 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   createProtocolFabric,
+  ensureProtocolFabric,
   registerProtocolManifest,
   type PiProtocolManifest,
   type ProtocolInvocationContext,
+  type ProtocolRuntimeEvent,
 } from "@kybernetria/pi-protocol";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import { createAgentExecutors } from "../protocol/agents.ts";
-import { createPiChildAgentSession } from "../src/runtime/pi-runner.ts";
-import type { AgentDefinition } from "../src/runtime/definition.ts";
-import type { AgentRunnerInvocation, ChildAgentRunner } from "../src/runtime/run-agent.ts";
+import { createPiChildAgentSession, wrapRealSession } from "../src/runtime/pi-runner.ts";
+import { agentSpecFor, provideSpecFor } from "../src/runtime/manifest.ts";
+import { prepareAgentInput, type AgentRunnerInvocation, type ChildAgentRunner } from "../src/runtime/run-agent.ts";
 import { architectDefinition, reviewerDefinition, scoutDefinition, securityReviewerDefinition, workerDefinition } from "../src/roles/index.ts";
 
 const typedManifest = manifest as unknown as PiProtocolManifest;
@@ -76,23 +79,23 @@ test("manifest registers exactly the five public agent provides", () => {
 test("all provide schemas completely describe their role-specific input and output", () => {
   const expected = {
     scout: {
-      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "scope", "questions"],
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "scope", "questions"],
       output: ["summary", "files", "codePaths", "findings", "unresolvedQuestions", "diagnostics", "message"],
     },
     architect: {
-      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "constraints", "outputDepth"],
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "constraints"],
       output: ["summary", "assumptions", "plan", "risks", "acceptanceCriteria", "diagnostics", "message"],
     },
     worker: {
-      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "plan", "acceptanceCriteria"],
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "plan", "acceptanceCriteria"],
       output: ["summary", "changedFiles", "tests", "unresolvedIssues", "diagnostics", "message"],
     },
     reviewer: {
-      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "diff", "commit", "range", "acceptanceCriteria", "testExpectations"],
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "diff", "commit", "range", "acceptanceCriteria", "testExpectations"],
       output: ["summary", "verdict", "findings", "testResults", "diagnostics", "message"],
     },
     security_reviewer: {
-      input: ["task", "cwd", "context", "model", "thinkingLevel", "timeoutMs", "diff", "commit", "range", "acceptanceCriteria", "testExpectations", "securityFocus"],
+      input: ["task", "cwd", "context", "model", "thinkingLevel", "diff", "commit", "range", "acceptanceCriteria", "testExpectations", "securityFocus"],
       output: ["summary", "verdict", "threatModel", "findings", "testResults", "diagnostics", "message"],
     },
   } as const;
@@ -106,14 +109,7 @@ test("all provide schemas completely describe their role-specific input and outp
   }
 });
 
-test("runtime output validation and manifest schemas agree for every role", async () => {
-  const definitions: Record<string, AgentDefinition<any, any>> = {
-    scout: scoutDefinition,
-    architect: architectDefinition,
-    worker: workerDefinition,
-    reviewer: reviewerDefinition,
-    security_reviewer: securityReviewerDefinition,
-  };
+test("manifest output schemas are the sole runtime output contract", async () => {
   const invalidate = {
     scout: (value: any) => { value.files[0].line = 1.5; },
     architect: (value: any) => { value.plan[0].order = "first"; },
@@ -125,13 +121,11 @@ test("runtime output validation and manifest schemas agree for every role", asyn
   for (const provide of typedManifest.provides) {
     const role = provide.name as keyof typeof invalidate;
     const valid = JSON.parse(outputFor(role));
-    assert.equal(definitions[role].validateOutput(valid), true, `${role} runtime accepts representative output`);
     assert.equal((await invokeRawAgentOutput(role, valid)).ok, true, `${role} schema accepts representative output`);
 
     for (const required of provide.outputSchema.required ?? []) {
       const missing = structuredClone(valid);
       delete missing[required];
-      assert.equal(definitions[role].validateOutput(missing), false, `${role} runtime requires ${required}`);
       const result = await invokeRawAgentOutput(role, missing);
       assert.equal(result.ok, false, `${role} schema requires ${required}`);
       if (!result.ok) assert.equal(result.error.code, "INVALID_OUTPUT");
@@ -139,7 +133,6 @@ test("runtime output validation and manifest schemas agree for every role", asyn
 
     const malformed = structuredClone(valid);
     invalidate[role](malformed);
-    assert.equal(definitions[role].validateOutput(malformed), false, `${role} runtime rejects malformed nested output`);
     const result = await invokeRawAgentOutput(role, malformed);
     assert.equal(result.ok, false, `${role} schema rejects malformed nested output`);
     if (!result.ok) assert.equal(result.error.code, "INVALID_OUTPUT");
@@ -169,6 +162,33 @@ test("all agent executors return schema-compatible structured output", async () 
   }
 });
 
+test("agent executors emit the standard protocol runtime telemetry", async () => {
+  const cwd = await fixture();
+  const events: ProtocolRuntimeEvent[] = [];
+  const fabric = register(async (invocation) => outputFor(invocation.role));
+  fabric.subscribeRuntimeEventRecorder((event) => { events.push(event); });
+  const result = await fabric.invoke({
+    nodeId: "pi_dev",
+    provide: "architect",
+    input: { task: "Plan", cwd },
+    traceId: "pi-dev-runtime-trace",
+    spanId: "pi-dev-runtime-span",
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(events.map((event) => event.type), [
+    "executor_session_model",
+    "executor_input_snapshot",
+    "executor_output_delta",
+    "executor_output_snapshot",
+  ]);
+  const modelEvent = events[0];
+  assert.equal(modelEvent?.type, "executor_session_model");
+  if (modelEvent?.type === "executor_session_model") {
+    assert.equal(modelEvent.model, agentSpecFor("architect").modelHint?.specific);
+    assert.equal(modelEvent.thinkingLevel, agentSpecFor("architect").modelHint?.thinkingLevel);
+  }
+});
+
 test("fabric and runtime reject invalid inputs", async () => {
   const cwd = await fixture();
   const fabric = register(async (invocation) => outputFor(invocation.role));
@@ -191,30 +211,155 @@ test("role tool restrictions are enforced in runner configuration", async () => 
   assert.deepEqual(byRole.scout?.builtinTools, ["read", "grep", "find", "ls"]);
   assert.equal(byRole.scout?.builtinTools.includes("bash"), false);
   assert.deepEqual(byRole.architect?.builtinTools, ["read", "grep", "find", "ls"]);
+  assert.deepEqual(byRole.architect?.customToolNames, ["protocol"]);
   assert.deepEqual(byRole.worker?.builtinTools, ["read", "grep", "find", "ls", "bash", "edit", "write"]);
+  assert.deepEqual(byRole.worker?.customToolNames, ["protocol"]);
   assert.deepEqual(byRole.reviewer?.builtinTools, ["read", "grep", "find", "ls"]);
-  assert.deepEqual(byRole.reviewer?.customToolNames, ["review_command"]);
+  assert.deepEqual(byRole.reviewer?.customToolNames, ["review_command", "protocol"]);
   assert.deepEqual(byRole.security_reviewer?.builtinTools, ["read", "grep", "find", "ls"]);
-  assert.deepEqual(byRole.security_reviewer?.customToolNames, ["review_command"]);
+  assert.deepEqual(byRole.security_reviewer?.customToolNames, ["review_command", "protocol"]);
+  assert.equal(byRole.scout?.model, "openai-codex/gpt-5.3-codex-spark");
+  assert.equal(byRole.scout?.thinkingLevel, "high");
+  assert.equal(byRole.architect?.model, "openai-codex/gpt-5.6-sol");
+  assert.equal(byRole.architect?.thinkingLevel, "high");
+  assert.equal(byRole.worker?.model, "openai-codex/gpt-5.6-sol");
+  assert.equal(byRole.worker?.thinkingLevel, "medium");
+  assert.equal(byRole.reviewer?.model, "openai-codex/gpt-5.6-sol");
+  assert.equal(byRole.reviewer?.thinkingLevel, "high");
+  assert.equal(byRole.security_reviewer?.model, "openai-codex/gpt-5.6-sol");
+  assert.equal(byRole.security_reviewer?.thinkingLevel, "high");
 });
 
-test("real SDK initializes a scout session with the supported model runtime", async () => {
+test("real SDK applies the scout manifest tool allowlist", async () => {
   const cwd = await fixture();
-  const session = await createPiChildAgentSession({
-    role: "scout",
-    cwd,
-    prompt: "Inspect the fixture.",
-    systemPrompt: "You are a read-only scout.",
-    builtinTools: ["read", "grep", "find", "ls"],
-    customToolNames: [],
-    thinkingLevel: "minimal",
-    signal: new AbortController().signal,
-  });
+  const prepared = await prepareAgentInput(
+    scoutDefinition,
+    { task: "Inspect the fixture.", cwd, thinkingLevel: "minimal" },
+    agentSpecFor("scout"),
+    provideSpecFor("scout"),
+    {},
+  );
+  const session = await createPiChildAgentSession(prepared, scoutDefinition, agentSpecFor("scout"));
   try {
-    assert.deepEqual(session.agent.state.tools.map((tool) => tool.name), ["read", "grep", "find", "ls"]);
+    const introspection = session as typeof session & { getActiveToolNames(): string[] };
+    assert.deepEqual(introspection.getActiveToolNames(), agentSpecFor("scout").tools);
     assert.ok(session.thinkingLevel === "minimal" || session.thinkingLevel === "off");
   } finally {
     session.dispose();
+  }
+});
+
+test("real session adapter forwards only the final assistant response and exposes model failures", async () => {
+  const finalOutput = outputFor("scout");
+  const successfulSession = fakeAgentSession([
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "I will inspect {\"path\":\"package.json\"}." }],
+      stopReason: "toolUse",
+    },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: finalOutput }],
+      stopReason: "stop",
+    },
+  ]);
+  const wrapped = wrapRealSession(successfulSession, new AbortController(), () => undefined, "scout");
+  let forwarded = "";
+  wrapped.subscribe((event) => {
+    if (event.type === "message_update" && "assistantMessageEvent" in event && event.assistantMessageEvent.type === "text_delta") {
+      forwarded += event.assistantMessageEvent.delta;
+    }
+  });
+  await wrapped.prompt("Inspect");
+  assert.equal(forwarded, finalOutput);
+  wrapped.dispose();
+
+  const failedSession = fakeAgentSession([{
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: "upstream rate limit",
+  }]);
+  const failed = wrapRealSession(failedSession, new AbortController(), () => undefined, "scout");
+  await assert.rejects(() => failed.prompt("Inspect"), /scout agent failed.*upstream rate limit/);
+  failed.dispose();
+});
+
+function fakeAgentSession(assistantMessages: unknown[]): AgentSession {
+  const listeners = new Set<(event: any) => void>();
+  return {
+    model: { provider: "test", id: "fake" },
+    thinkingLevel: "off",
+    messages: [],
+    agent: { state: { tools: [] } },
+    async prompt() {
+      for (const message of assistantMessages) {
+        for (const listener of listeners) listener({ type: "message_end", message });
+      }
+    },
+    subscribe(listener: (event: any) => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async abort() {},
+    dispose() { listeners.clear(); },
+    getActiveToolNames() { return []; },
+  } as unknown as AgentSession;
+}
+
+test("real SDK injects protocol only into delegating roles and binds nested provenance", async () => {
+  const cwd = await fixture();
+  const fabric = ensureProtocolFabric();
+  fabric.unregister("pi_dev_provenance_test");
+  fabric.register({
+    node: {
+      nodeId: "pi_dev_provenance_test",
+      purpose: "Nested provenance fixture",
+      provides: [{
+        name: "scout",
+        description: "Fixture Scout",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "object" },
+        execution: { type: "handler", handler: "scout" },
+      }],
+    },
+    handlers: { scout: () => ({ found: true }) },
+  });
+  const prepared = await prepareAgentInput(
+    architectDefinition,
+    { task: "Inspect the fixture.", cwd, thinkingLevel: "minimal" },
+    agentSpecFor("architect"),
+    provideSpecFor("architect"),
+    {},
+  );
+  const session = await createPiChildAgentSession(prepared, architectDefinition, agentSpecFor("architect"));
+  session.setProtocolInvocationContext?.({
+    nodeId: "pi_dev",
+    provide: "architect",
+    traceId: "architect_trace",
+    spanId: "architect_span",
+    childCounter: 0,
+  });
+  const events: Array<{ traceId: string; parentSpanId?: string; callerNodeId?: string; nodeId: string; provide: string; status: string }> = [];
+  const unsubscribe = fabric.subscribeProvenanceRecorder((event) => { events.push(event); });
+  try {
+    const introspection = session as typeof session & {
+      getActiveToolNames(): string[];
+      getActiveTool(name: string): { execute: (...args: any[]) => Promise<unknown> } | undefined;
+    };
+    assert.deepEqual(introspection.getActiveToolNames(), agentSpecFor("architect").tools);
+    const protocolTool = introspection.getActiveTool("protocol");
+    assert.ok(protocolTool);
+    await protocolTool.execute("nested-provenance-test", { target: "pi_dev_provenance_test.scout", input: {} });
+    const nested = events.find((event) => event.nodeId === "pi_dev_provenance_test" && event.provide === "scout" && event.status === "started");
+    assert.ok(nested);
+    assert.equal(nested.traceId, "architect_trace");
+    assert.equal(nested.parentSpanId, "architect_span");
+    assert.equal(nested.callerNodeId, "pi_dev.architect");
+  } finally {
+    unsubscribe();
+    session.dispose();
+    fabric.unregister("pi_dev_provenance_test");
   }
 });
 
@@ -228,8 +373,8 @@ test("scout is configured for fast, concise, read-only exploration", async () =>
     input: { task: "Trace refresh", cwd, scope: ["src/auth"], questions: ["Who calls refresh?"] },
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(seen?.model, "openai-codex/gpt-5.6-luna");
-  assert.equal(seen?.thinkingLevel, "low");
+  assert.equal(seen?.model, "openai-codex/gpt-5.3-codex-spark");
+  assert.equal(seen?.thinkingLevel, "high");
   assert.deepEqual(seen?.builtinTools, ["read", "grep", "find", "ls"]);
   assert.deepEqual(seen?.customToolNames, []);
   assert.match(seen?.systemPrompt ?? "", /fast software scout/i);
@@ -238,8 +383,13 @@ test("scout is configured for fast, concise, read-only exploration", async () =>
   assert.match(seen?.prompt ?? "", /src\/auth/);
   assert.match(seen?.prompt ?? "", /Who calls refresh\?/);
   assert.deepEqual(manifest.agents.scout.tools, ["read", "grep", "find", "ls"]);
+  assert.equal("protocolAccess" in manifest.agents.scout, false);
+  for (const role of ["architect", "worker", "reviewer", "security_reviewer"] as const) {
+    assert.deepEqual(manifest.agents[role].protocolAccess, { allowedTargets: ["pi_dev.scout"] });
+    assert.equal(manifest.agents[role].tools.includes("protocol"), true);
+  }
   assert.equal(manifest.agents.scout.modelHint.tier, "fast");
-  assert.equal(manifest.agents.scout.modelHint.thinkingLevel, "low");
+  assert.equal(manifest.agents.scout.modelHint.thinkingLevel, "high");
 });
 
 test("cwd is canonicalized and non-directories are rejected", async () => {
@@ -255,16 +405,8 @@ test("cwd is canonicalized and non-directories are rejected", async () => {
   assert.equal(bad.ok, false);
 });
 
-test("timeout and caller cancellation reach the child runner", async () => {
+test("agents have no internal wall-clock timeout and caller cancellation reaches the child runner", async () => {
   const cwd = await fixture();
-  let timeoutAborted = false;
-  const never: ChildAgentRunner = (invocation) => new Promise((_resolve, reject) => {
-    invocation.signal.addEventListener("abort", () => { timeoutAborted = true; reject(invocation.signal.reason); }, { once: true });
-  });
-  const timeoutResult = await register(never).invoke({ nodeId: "pi_dev", provide: "worker", input: { task: "Wait", cwd, timeoutMs: 10 } });
-  assert.equal(timeoutResult.ok, false);
-  assert.equal(timeoutAborted, true);
-
   let callerAborted = false;
   let markStarted!: () => void;
   const started = new Promise<void>((resolveStarted) => { markStarted = resolveStarted; });
@@ -273,11 +415,19 @@ test("timeout and caller cancellation reach the child runner", async () => {
     invocation.signal.addEventListener("abort", () => { callerAborted = true; reject(invocation.signal.reason); }, { once: true });
   });
   const controller = new AbortController();
-  const pending = register(cancelled).invoke({ nodeId: "pi_dev", provide: "reviewer", input: { task: "Wait", cwd }, abortSignal: controller.signal });
+  const pending = register(cancelled).invoke({
+    nodeId: "pi_dev",
+    provide: "reviewer",
+    input: { task: "Wait", cwd, timeoutMs: 10 },
+    abortSignal: controller.signal,
+  });
   await started;
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  assert.equal(callerAborted, false, "legacy timeoutMs input must not create an internal deadline");
   controller.abort();
   const cancelResult = await pending;
   assert.equal(cancelResult.ok, false);
+  if (!cancelResult.ok) assert.equal(cancelResult.error.code, "ABORTED");
   assert.equal(callerAborted, true);
 });
 

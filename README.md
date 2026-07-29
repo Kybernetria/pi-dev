@@ -27,7 +27,7 @@ Use the generic `protocol` tool:
 ```
 
 ```json
-{"target":"pi_dev.architect","input":{"task":"Plan token refresh support","cwd":"/repo","constraints":["Preserve the public API"],"outputDepth":"detailed"}}
+{"target":"pi_dev.architect","input":{"task":"Plan token refresh support","cwd":"/repo","constraints":["Preserve the public API"]}}
 ```
 
 ```json
@@ -65,40 +65,41 @@ A caller can invoke:
 4. `reviewer` and/or `security_reviewer` against the resulting diff/range.
 5. Optionally, `worker` again with the review findings as `context` and acceptance criteria.
 
-Each invocation creates a fresh in-memory child AgentSession bound to the requested cwd.
+Ephemeral invocations create a fresh in-memory child AgentSession bound to the requested cwd. Protocol `continue`/`end` session controls reuse and dispose the same role session through the standard SDK adapter.
 
 ## Safety
 
 - Cwds are resolved to canonical existing directories before session creation.
-- Scout and architect get only `read`, `grep`, `find`, and `ls`; scout is instructed to search narrowly and return concise, verified findings.
-- Worker gets read/search tools plus `bash`, `edit`, and `write`, and modifies the cwd directly.
-- Reviewer has no general shell or mutation tool. `review_command` uses no shell and only supports constrained git status/diff/show and standard npm/pnpm/yarn/bun test execution. Tests can still create normal build/cache artifacts.
-- Child sessions load no extensions, skills, prompt templates, or themes, preventing recursive self-loading. Project context files may still be read.
-- Caller cancellation and timeouts abort the child session. Large prompt and reviewer-command output is truncated with diagnostics; oversized model responses are rejected rather than returning untrusted partial JSON.
+- Scout gets only `read`, `grep`, `find`, and `ls`; it is instructed to search narrowly and return concise, verified findings.
+- Architect gets the same read-only file tools plus `protocol`; its caller-side protocol policy allows only `pi_dev.scout`.
+- Worker gets read/search tools plus `bash`, `edit`, `write`, and restricted `protocol` access to `pi_dev.scout`; it modifies the cwd directly.
+- Reviewers have no general shell or mutation tool. They receive restricted `protocol` access to `pi_dev.scout`; `review_command` uses no shell and only supports constrained git status/diff/show and standard npm/pnpm/yarn/bun test execution. Tests can still create normal build/cache artifacts.
+- Child sessions load no extensions, skills, prompt templates, or themes, preventing recursive self-loading. The restricted protocol tool is injected explicitly; project context files may still be read.
+- `pi.protocol.json` is the sole authority for prompts, exact tool allowlists, model defaults, thinking defaults, schemas, protocol access, and effects. Role modules only shape role-specific request details.
+- Agent execution goes through the standard Pi SDK protocol adapter, including session continuation and model/input/delta/output runtime telemetry.
+- Caller cancellation aborts the child session. Agent calls have no internal wall-clock deadline, so substantial work is not discarded merely for taking longer than expected. Large prompt and reviewer-command output is truncated with diagnostics; oversized model responses are rejected rather than returning untrusted partial JSON.
 
 Review tasks and worker tasks can execute project code. Only use trusted repositories and review commands/scripts.
 
 ## Configuration
 
-Every request may set `model`, `thinkingLevel`, and `timeoutMs`. If omitted, configuration is resolved in this order:
+Every request may set `model` and `thinkingLevel`. If omitted, configuration is resolved in this order:
 
-- Model: request value, `PI_DEV_<ROLE>_MODEL`, `PI_DEV_MODEL`, then the role default (the scout uses `openai-codex/gpt-5.6-luna`); roles without a default use Pi's configured/default available model.
-- Thinking: request value, `PI_DEV_<ROLE>_THINKING`, `PI_DEV_THINKING`, then the role default (the scout uses `low`).
-- Timeout: 10 minutes (maximum accepted request value: 1 hour).
+- Model: request value, `PI_DEV_<ROLE>_MODEL`, `PI_DEV_MODEL`, then the role default. Scout uses `openai-codex/gpt-5.3-codex-spark`; architect, worker, reviewer, and security reviewer use `openai-codex/gpt-5.6-sol`.
+- Thinking: request value, `PI_DEV_<ROLE>_THINKING`, `PI_DEV_THINKING`, then the role default. Worker uses `medium`; all other roles use `high`.
 
-Limits can be configured with `PI_DEV_MAX_PROMPT_CHARS` and `PI_DEV_MAX_RESPONSE_CHARS`.
+Agent calls do not impose an internal wall-clock timeout. Callers retain explicit cancellation through the protocol invocation signal. Limits can be configured with `PI_DEV_MAX_PROMPT_CHARS` and `PI_DEV_MAX_RESPONSE_CHARS`.
 
 ## Add another agent
 
 1. Add its request/output types in `src/types.ts`.
-2. Add a declarative `AgentDefinition` under `src/roles/`, including tool allowlists, prompt, output contract, and validator.
-3. Export the definition from `src/roles/index.ts`.
-4. Export a thin agent executor from `protocol/agents.ts` that calls the shared `runAgent`; add its key to `createAgentExecutors()`.
-5. Add the agent metadata under `agents` in the manifest, then add one manifest provide whose agent execution key exactly matches that executor key.
-6. If needed, add a narrowly scoped custom-tool factory to `src/runtime/pi-runner.ts`; do not broaden another role's allowlist.
-7. Add registration, contract, restriction, cancellation, and malformed-output tests, then run `npm run typecheck && npm test`.
+2. Add a minimal `AgentDefinition` under `src/roles/` that only shapes role-specific request details.
+3. Export the definition from `src/roles/index.ts` and add it to the definition map in `protocol/agents.ts`.
+4. Declare the agent's prompt, exact tools, model/thinking defaults, protocol access, and complete schemas/effects in `pi.protocol.json`; do not duplicate them in role code.
+5. If needed, add a narrowly scoped custom-tool factory to `src/runtime/pi-runner.ts`; do not broaden another role's manifest allowlist.
+6. Add registration, contract, restriction, telemetry, session, cancellation, and malformed-output tests, then run `npm run typecheck && npm test`.
 
-The shared runtime requires no role switch statement.
+The shared runtime derives operational behavior from the resolved manifest and requires no role switch statement.
 
 ## Development
 

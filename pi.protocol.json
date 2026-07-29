@@ -23,16 +23,23 @@
       },
       "modelHint": {
         "tier": "fast",
-        "thinkingLevel": "low"
+        "specific": "openai-codex/gpt-5.6-luna",
+        "thinkingLevel": "medium"
       }
     },
     "architect": {
       "description": "Read-only software architect.",
+      "protocolAccess": {
+        "allowedTargets": [
+          "pi_dev.scout"
+        ]
+      },
       "tools": [
         "read",
         "grep",
         "find",
-        "ls"
+        "ls",
+        "protocol"
       ],
       "systemPrompt": {
         "file": "./prompts/architect.md",
@@ -40,11 +47,17 @@
       },
       "modelHint": {
         "tier": "reasoning",
+        "specific": "openai-codex/gpt-5.6-sol",
         "thinkingLevel": "high"
       }
     },
     "worker": {
       "description": "Implementation worker with direct cwd mutation.",
+      "protocolAccess": {
+        "allowedTargets": [
+          "pi_dev.scout"
+        ]
+      },
       "tools": [
         "read",
         "grep",
@@ -52,7 +65,8 @@
         "ls",
         "bash",
         "edit",
-        "write"
+        "write",
+        "protocol"
       ],
       "systemPrompt": {
         "file": "./prompts/worker.md",
@@ -60,17 +74,24 @@
       },
       "modelHint": {
         "tier": "balanced",
+        "specific": "openai-codex/gpt-5.6-sol",
         "thinkingLevel": "medium"
       }
     },
     "reviewer": {
       "description": "Source-read-only code reviewer with constrained git/test execution.",
+      "protocolAccess": {
+        "allowedTargets": [
+          "pi_dev.scout"
+        ]
+      },
       "tools": [
         "read",
         "grep",
         "find",
         "ls",
-        "review_command"
+        "review_command",
+        "protocol"
       ],
       "systemPrompt": {
         "file": "./prompts/reviewer.md",
@@ -78,17 +99,24 @@
       },
       "modelHint": {
         "tier": "reasoning",
+        "specific": "openai-codex/gpt-5.6-sol",
         "thinkingLevel": "high"
       }
     },
     "security_reviewer": {
       "description": "Source-read-only security reviewer with constrained git/test execution.",
+      "protocolAccess": {
+        "allowedTargets": [
+          "pi_dev.scout"
+        ]
+      },
       "tools": [
         "read",
         "grep",
         "find",
         "ls",
-        "review_command"
+        "review_command",
+        "protocol"
       ],
       "systemPrompt": {
         "file": "./prompts/security-reviewer.md",
@@ -96,6 +124,7 @@
       },
       "modelHint": {
         "tier": "reasoning",
+        "specific": "openai-codex/gpt-5.6-sol",
         "thinkingLevel": "high"
       }
     }
@@ -132,9 +161,6 @@
               "high",
               "xhigh"
             ]
-          },
-          "timeoutMs": {
-            "type": "integer"
           },
           "scope": {
             "type": "array",
@@ -272,22 +298,11 @@
               "xhigh"
             ]
           },
-          "timeoutMs": {
-            "type": "integer"
-          },
           "constraints": {
             "type": "array",
             "items": {
               "type": "string"
             }
-          },
-          "outputDepth": {
-            "type": "string",
-            "enum": [
-              "concise",
-              "standard",
-              "detailed"
-            ]
           }
         }
       },
@@ -409,9 +424,6 @@
               "high",
               "xhigh"
             ]
-          },
-          "timeoutMs": {
-            "type": "integer"
           },
           "plan": {
             "type": "array",
@@ -545,9 +557,6 @@
               "high",
               "xhigh"
             ]
-          },
-          "timeoutMs": {
-            "type": "integer"
           },
           "diff": {
             "type": "string"
@@ -709,9 +718,6 @@
               "high",
               "xhigh"
             ]
-          },
-          "timeoutMs": {
-            "type": "integer"
           },
           "diff": {
             "type": "string"

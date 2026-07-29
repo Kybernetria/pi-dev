@@ -7,7 +7,6 @@ export interface AgentRequestBase {
   context?: string;
   model?: string;
   thinkingLevel?: ThinkingLevel;
-  timeoutMs?: number;
 }
 
 export interface ScoutRequest extends AgentRequestBase {
@@ -17,7 +16,6 @@ export interface ScoutRequest extends AgentRequestBase {
 
 export interface ArchitectRequest extends AgentRequestBase {
   constraints?: string[];
-  outputDepth?: "concise" | "standard" | "detailed";
 }
 
 export interface WorkerRequest extends AgentRequestBase {

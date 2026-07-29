@@ -1,26 +1,27 @@
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 const MAX_TOOL_OUTPUT = 32_000;
 const SAFE_TARGET = /^[A-Za-z0-9_./~^@{}:+-]+$/;
+const REVIEW_COMMAND_PARAMETERS = Type.Object({
+  operation: Type.Union([
+    Type.Literal("git_status"),
+    Type.Literal("git_diff"),
+    Type.Literal("git_show"),
+    Type.Literal("test"),
+  ]),
+  target: Type.Optional(Type.String({ description: "A git revision/range/path target; options are rejected." })),
+  testRunner: Type.Optional(Type.Union([Type.Literal("npm"), Type.Literal("pnpm"), Type.Literal("yarn"), Type.Literal("bun")])),
+  testArgs: Type.Optional(Type.Array(Type.String())),
+});
 
-export function createReviewCommandTool(cwd: string, signal: AbortSignal): ToolDefinition {
-  return defineTool({
+export function createReviewCommandTool(cwd: string, signal: AbortSignal): ToolDefinition<typeof REVIEW_COMMAND_PARAMETERS> {
+  return {
     name: "review_command",
     label: "Review command",
     description: "Run source-read-only git inspection or a standard project test runner. No shell is used.",
-    parameters: Type.Object({
-      operation: Type.Union([
-        Type.Literal("git_status"),
-        Type.Literal("git_diff"),
-        Type.Literal("git_show"),
-        Type.Literal("test"),
-      ]),
-      target: Type.Optional(Type.String({ description: "A git revision/range/path target; options are rejected." })),
-      testRunner: Type.Optional(Type.Union([Type.Literal("npm"), Type.Literal("pnpm"), Type.Literal("yarn"), Type.Literal("bun")])),
-      testArgs: Type.Optional(Type.Array(Type.String())),
-    }),
+    parameters: REVIEW_COMMAND_PARAMETERS,
     execute: async (_toolCallId, input) => {
       const command = buildCommand(input);
       const result = await spawnCaptured(command.executable, command.args, cwd, signal);
@@ -34,7 +35,7 @@ export function createReviewCommandTool(cwd: string, signal: AbortSignal): ToolD
         details: { exitCode: result.code, truncated },
       };
     },
-  });
+  };
 }
 
 function buildCommand(input: {

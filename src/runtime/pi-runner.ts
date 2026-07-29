@@ -7,65 +7,261 @@ import {
   type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { ChildAgentRunner } from "./run-agent.ts";
+import * as ProtocolRuntime from "@kybernetria/pi-protocol";
+import type { CurrentProtocolInvocationContext, ProtocolAgentSpec } from "@kybernetria/pi-protocol";
+import {
+  UNIVERSAL_PROTOCOL_AWARENESS_PROMPT,
+} from "@kybernetria/pi-protocol/sdk/agent-session";
+import type {
+  PiSdkAgentSessionEventLike,
+  PiSdkAgentSessionLike,
+} from "@kybernetria/pi-protocol/sdk";
+import type { AgentDefinition } from "./definition.ts";
+import type { ChildAgentRunner, PreparedAgentInput } from "./run-agent.ts";
 import { createReviewCommandTool } from "./review-command.ts";
 
-const customToolFactories: Record<string, (cwd: string, signal: AbortSignal) => ToolDefinition> = {
-  review_command: createReviewCommandTool,
-};
+const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+const CUSTOM_TOOLS = new Set(["review_command", "protocol"]);
 
-export async function createPiChildAgentSession(invocation: Parameters<ChildAgentRunner>[0]): Promise<AgentSession> {
+export async function createPiChildAgentSession(
+  prepared: PreparedAgentInput,
+  definition: AgentDefinition<any, any>,
+  agent: ProtocolAgentSpec,
+  runner?: ChildAgentRunner,
+): Promise<PiSdkAgentSessionLike> {
+  if (runner) return createRunnerBackedSession(prepared, definition, agent, runner);
+
+  const tools = exactManifestTools(definition.role, agent);
   const agentDir = getAgentDir();
   const modelRuntime = await ModelRuntime.create();
-  const model = invocation.model ? resolveModel(invocation.model, modelRuntime) : undefined;
-  if (invocation.model && !model) throw new Error(`Model not found or ambiguous: ${invocation.model}`);
+  const model = prepared.model ? resolveModel(prepared.model, modelRuntime) : undefined;
+  if (prepared.model && !model) throw new Error(`Model not found or ambiguous: ${prepared.model}`);
 
+  const hasProtocol = tools.includes("protocol");
+  const prompt = resolvedSystemPrompt(definition.role, agent);
+  const promptMode = agent.systemPrompt?.mode ?? "append";
   const resourceLoader = new DefaultResourceLoader({
-    cwd: invocation.cwd,
+    cwd: prepared.cwd,
     agentDir,
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
-    systemPromptOverride: () => invocation.systemPrompt,
-    appendSystemPromptOverride: () => [],
+    ...(promptMode === "replace" ? { systemPromptOverride: () => prompt } : {}),
+    appendSystemPromptOverride: (base: string[]) => appendUnique(base, [
+      ...(hasProtocol ? [UNIVERSAL_PROTOCOL_AWARENESS_PROMPT] : []),
+      ...(promptMode === "append" ? [prompt] : []),
+    ]),
   });
   await resourceLoader.reload();
 
-  const customTools = invocation.customToolNames.map((name) => {
-    const factory = customToolFactories[name];
-    if (!factory) throw new Error(`Unknown custom tool: ${name}`);
-    return factory(invocation.cwd, invocation.signal);
-  });
-  const toolNames = [...invocation.builtinTools, ...invocation.customToolNames];
+  let activeProtocolContext: CurrentProtocolInvocationContext | undefined;
+  const lifetimeController = new AbortController();
+  const customTools: ToolDefinition[] = [];
+  if (tools.includes("review_command")) {
+    customTools.push(createReviewCommandTool(prepared.cwd, lifetimeController.signal));
+  }
+  if (hasProtocol) {
+    customTools.push(createPolicyAwareProtocolTool(() => activeProtocolContext));
+  }
+
   const { session } = await createAgentSession({
-    cwd: invocation.cwd,
+    cwd: prepared.cwd,
     agentDir,
     modelRuntime,
     ...(model ? { model } : {}),
-    thinkingLevel: invocation.thinkingLevel,
-    tools: toolNames,
+    thinkingLevel: prepared.thinkingLevel,
+    tools,
     customTools,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(invocation.cwd),
+    sessionManager: SessionManager.inMemory(prepared.cwd),
   });
-  return session;
+  assertExactTools(definition.role, session, tools);
+
+  return wrapRealSession(session, lifetimeController, (context) => {
+    activeProtocolContext = context;
+    if (context?.abortSignal) {
+      if (context.abortSignal.aborted) lifetimeController.abort(context.abortSignal.reason);
+      else context.abortSignal.addEventListener("abort", () => lifetimeController.abort(context.abortSignal?.reason), { once: true });
+    }
+  }, definition.role);
 }
 
-export const piChildAgentRunner: ChildAgentRunner = async (invocation) => {
-  const session = await createPiChildAgentSession(invocation);
-  const abortSession = () => { void session.abort(); };
-  invocation.signal.addEventListener("abort", abortSession, { once: true });
-  try {
-    await session.prompt(invocation.prompt, { expandPromptTemplates: false });
-    const text = lastAssistantText(session.messages);
-    if (!text) throw new Error(`${invocation.role} agent returned no text output`);
-    return text;
-  } finally {
-    invocation.signal.removeEventListener("abort", abortSession);
-    session.dispose();
+function createPolicyAwareProtocolTool(
+  currentContext: () => CurrentProtocolInvocationContext | undefined,
+): ToolDefinition {
+  const tool = ProtocolRuntime.createProtocolTool(ProtocolRuntime.ensureProtocolFabric());
+  return {
+    ...tool,
+    async execute(
+      toolCallId: string,
+      input: Parameters<typeof tool.execute>[1],
+      signal?: AbortSignal,
+      onUpdate?: Parameters<typeof tool.execute>[3],
+    ) {
+      const execute = () => tool.execute(toolCallId, input, signal, onUpdate);
+      const context = currentContext();
+      return context
+        ? ProtocolRuntime.runWithProtocolInvocationContextValue(context, execute)
+        : execute();
+    },
+  } as ToolDefinition;
+}
+
+function createRunnerBackedSession(
+  prepared: PreparedAgentInput,
+  definition: AgentDefinition<any, any>,
+  agent: ProtocolAgentSpec,
+  runner: ChildAgentRunner,
+): PiSdkAgentSessionLike {
+  const listeners = new Set<(event: PiSdkAgentSessionEventLike) => void>();
+  const controller = new AbortController();
+  const tools = exactManifestTools(definition.role, agent);
+  const model = modelIdentity(prepared.model);
+  return {
+    ...(model ? { model } : {}),
+    thinkingLevel: prepared.thinkingLevel,
+    async prompt(prompt: string) {
+      const raw = await runner({
+        role: definition.role,
+        cwd: prepared.cwd,
+        prompt,
+        systemPrompt: resolvedSystemPrompt(definition.role, agent),
+        builtinTools: tools.filter((name) => BUILTIN_TOOLS.has(name)),
+        customToolNames: tools.filter((name) => CUSTOM_TOOLS.has(name)),
+        ...(prepared.model ? { model: prepared.model } : {}),
+        thinkingLevel: prepared.thinkingLevel,
+        signal: controller.signal,
+      });
+      for (const listener of listeners) {
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: raw } });
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    dispose() {
+      controller.abort();
+      listeners.clear();
+    },
+    setProtocolInvocationContext(context) {
+      if (context?.abortSignal) {
+        if (context.abortSignal.aborted) controller.abort(context.abortSignal.reason);
+        else context.abortSignal.addEventListener("abort", () => controller.abort(context.abortSignal?.reason), { once: true });
+      }
+    },
+  };
+}
+
+export function wrapRealSession(
+  session: AgentSession,
+  lifetimeController: AbortController,
+  setContext: (context: CurrentProtocolInvocationContext | undefined) => void,
+  role = "agent",
+): PiSdkAgentSessionLike {
+  const outputListeners = new Set<(event: PiSdkAgentSessionEventLike) => void>();
+  return {
+    get model() { return session.model; },
+    get thinkingLevel() { return session.thinkingLevel; },
+    async prompt(text) {
+      let finalAssistantMessage: unknown;
+      const unsubscribeFinalMessage = session.subscribe((event) => {
+        if (event.type === "message_end" && isAssistantMessage(event.message)) {
+          finalAssistantMessage = event.message;
+        }
+      });
+      try {
+        await session.prompt(text, { expandPromptTemplates: false });
+      } finally {
+        unsubscribeFinalMessage();
+      }
+
+      const final = assistantResult(finalAssistantMessage);
+      if (!final) throw new Error(`${role} agent returned no final assistant message`);
+      if (final.errorMessage || final.stopReason === "error" || final.stopReason === "aborted") {
+        const reason = final.errorMessage ?? `stop reason ${final.stopReason}`;
+        throw new Error(`${role} agent failed before producing structured output: ${reason}`);
+      }
+      if (!final.text.trim()) {
+        const suffix = final.stopReason ? ` (stop reason: ${final.stopReason})` : "";
+        throw new Error(`${role} agent returned no final text output${suffix}`);
+      }
+
+      const event: PiSdkAgentSessionEventLike = {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: final.text },
+      };
+      for (const listener of outputListeners) listener(event);
+    },
+    subscribe(listener) {
+      outputListeners.add(listener);
+      return () => outputListeners.delete(listener);
+    },
+    dispose() {
+      outputListeners.clear();
+      lifetimeController.abort();
+      void session.abort();
+      session.dispose();
+    },
+    setProtocolInvocationContext: setContext,
+    // Introspection is intentionally outside the protocol session interface and
+    // exists for conformance tests of the manifest-owned allowlist.
+    getActiveToolNames: () => session.getActiveToolNames(),
+    getActiveTool: (name: string) => session.agent.state.tools.find((tool) => tool.name === name),
+  } as PiSdkAgentSessionLike;
+}
+
+function isAssistantMessage(value: unknown): value is {
+  role: "assistant";
+  content?: unknown;
+  stopReason?: unknown;
+  errorMessage?: unknown;
+} {
+  return typeof value === "object" && value !== null && (value as { role?: unknown }).role === "assistant";
+}
+
+function assistantResult(message: unknown): { text: string; stopReason?: string; errorMessage?: string } | undefined {
+  if (!isAssistantMessage(message)) return undefined;
+  const text = typeof message.content === "string"
+    ? message.content
+    : Array.isArray(message.content)
+      ? message.content.map((part) => {
+          const value = part as { type?: unknown; text?: unknown };
+          return value.type === "text" && typeof value.text === "string" ? value.text : "";
+        }).join("")
+      : "";
+  return {
+    text,
+    ...(typeof message.stopReason === "string" ? { stopReason: message.stopReason } : {}),
+    ...(typeof message.errorMessage === "string" && message.errorMessage.trim()
+      ? { errorMessage: message.errorMessage.trim() }
+      : {}),
+  };
+}
+
+function exactManifestTools(role: string, agent: ProtocolAgentSpec): string[] {
+  if (!agent.tools) throw new Error(`Manifest agent ${role} must declare an exact tools allowlist`);
+  const tools = [...agent.tools];
+  for (const name of tools) {
+    if (!BUILTIN_TOOLS.has(name) && !CUSTOM_TOOLS.has(name)) throw new Error(`Manifest agent ${role} declares unsupported tool ${name}`);
   }
-};
+  return tools;
+}
+
+function resolvedSystemPrompt(role: string, agent: ProtocolAgentSpec): string {
+  const prompt = agent.systemPrompt;
+  if (!prompt || typeof prompt.text !== "string") throw new Error(`Manifest agent ${role} must have a resolved system prompt`);
+  return prompt.text;
+}
+
+function assertExactTools(role: string, session: AgentSession, expected: string[]): void {
+  const actual = session.getActiveToolNames().slice().sort();
+  const sortedExpected = expected.slice().sort();
+  if (actual.length !== sortedExpected.length || actual.some((name, index) => name !== sortedExpected[index])) {
+    throw new Error(`Manifest tools for ${role} were not applied: expected ${JSON.stringify(sortedExpected)}, active ${JSON.stringify(actual)}`);
+  }
+}
 
 function resolveModel(reference: string, runtime: ModelRuntime): ReturnType<ModelRuntime["getModel"]> {
   const separator = reference.indexOf("/");
@@ -74,20 +270,16 @@ function resolveModel(reference: string, runtime: ModelRuntime): ReturnType<Mode
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-function lastAssistantText(messages: readonly unknown[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index] as { role?: string; content?: unknown } | undefined;
-    if (message?.role !== "assistant") continue;
-    if (typeof message.content === "string") return message.content;
-    if (Array.isArray(message.content)) {
-      const text = message.content
-        .map((part) => {
-          const value = part as { type?: string; text?: string };
-          return value.type === "text" && typeof value.text === "string" ? value.text : "";
-        })
-        .join("");
-      if (text) return text;
-    }
-  }
-  return "";
+function modelIdentity(reference: string | undefined): { provider?: string; id: string } | undefined {
+  if (!reference) return undefined;
+  const separator = reference.indexOf("/");
+  return separator > 0
+    ? { provider: reference.slice(0, separator), id: reference.slice(separator + 1) }
+    : { id: reference };
+}
+
+function appendUnique(base: string[], chunks: string[]): string[] {
+  const result = [...base];
+  for (const chunk of chunks) if (!result.some((item) => item.includes(chunk))) result.push(chunk);
+  return result;
 }
