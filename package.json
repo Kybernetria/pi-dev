@@ -24,15 +24,21 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --preserve-symlinks --import tsx --test test/*.test.ts"
+    "test": "node --preserve-symlinks --import tsx --test test/*.test.ts",
+    "protocol:check": "pi-protocol check .",
+    "protocol:generate": "pi-protocol generate ."
   },
   "pi": {
     "extensions": [
       "./extension.ts"
     ]
   },
+  "piProtocol": {
+    "generated": "protocol.generated.ts"
+  },
   "dependencies": {
-    "@kybernetria/pi-protocol": "^1.0.10",
+    "@kybernetria/pi-protocol": "file:../pi-protocol/packages/pi-protocol",
+    "ajv": "8.18.0",
     "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@^0.80.7"
   },
   "peerDependencies": {
@@ -41,6 +47,7 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-tui": "^0.80.10",
     "@types/node": "^24.5.2",
     "tsx": "^4.20.6",
     "typebox": "^1.0.65",

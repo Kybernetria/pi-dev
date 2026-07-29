@@ -5,8 +5,6 @@ export interface AgentRequestBase {
   task: string;
   cwd?: string;
   context?: string;
-  model?: string;
-  thinkingLevel?: ThinkingLevel;
 }
 
 export interface ScoutRequest extends AgentRequestBase {

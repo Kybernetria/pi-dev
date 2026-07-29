@@ -1,133 +1,13 @@
 {
-  "protocolVersion": "0.2.0",
-  "nodeId": "pi_dev",
-  "packageId": "pi-dev",
-  "version": "0.1.0",
-  "purpose": "Specialized isolated scout, architect, implementation worker, and source-read-only reviewer agents for caller-selected working directories.",
-  "tags": [
-    "agents",
-    "software-development"
-  ],
-  "agents": {
-    "scout": {
-      "description": "Fast read-only codebase exploration agent.",
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls"
-      ],
-      "systemPrompt": {
-        "file": "./prompts/scout.md",
-        "mode": "replace"
-      },
-      "modelHint": {
-        "tier": "fast",
-        "specific": "openai-codex/gpt-5.6-luna",
-        "thinkingLevel": "medium"
-      }
-    },
-    "architect": {
-      "description": "Read-only software architect.",
-      "protocolAccess": {
-        "allowedTargets": [
-          "pi_dev.scout"
-        ]
-      },
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "protocol"
-      ],
-      "systemPrompt": {
-        "file": "./prompts/architect.md",
-        "mode": "replace"
-      },
-      "modelHint": {
-        "tier": "reasoning",
-        "specific": "openai-codex/gpt-5.6-sol",
-        "thinkingLevel": "high"
-      }
-    },
-    "worker": {
-      "description": "Implementation worker with direct cwd mutation.",
-      "protocolAccess": {
-        "allowedTargets": [
-          "pi_dev.scout"
-        ]
-      },
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "bash",
-        "edit",
-        "write",
-        "protocol"
-      ],
-      "systemPrompt": {
-        "file": "./prompts/worker.md",
-        "mode": "replace"
-      },
-      "modelHint": {
-        "tier": "balanced",
-        "specific": "openai-codex/gpt-5.6-sol",
-        "thinkingLevel": "medium"
-      }
-    },
-    "reviewer": {
-      "description": "Source-read-only code reviewer with constrained git/test execution.",
-      "protocolAccess": {
-        "allowedTargets": [
-          "pi_dev.scout"
-        ]
-      },
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "review_command",
-        "protocol"
-      ],
-      "systemPrompt": {
-        "file": "./prompts/reviewer.md",
-        "mode": "replace"
-      },
-      "modelHint": {
-        "tier": "reasoning",
-        "specific": "openai-codex/gpt-5.6-sol",
-        "thinkingLevel": "high"
-      }
-    },
-    "security_reviewer": {
-      "description": "Source-read-only security reviewer with constrained git/test execution.",
-      "protocolAccess": {
-        "allowedTargets": [
-          "pi_dev.scout"
-        ]
-      },
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "review_command",
-        "protocol"
-      ],
-      "systemPrompt": {
-        "file": "./prompts/security-reviewer.md",
-        "mode": "replace"
-      },
-      "modelHint": {
-        "tier": "reasoning",
-        "specific": "openai-codex/gpt-5.6-sol",
-        "thinkingLevel": "high"
-      }
-    }
+  "$schema": "https://pi.dev/protocol/manifest-v1.schema.json",
+  "schemaVersion": 1,
+  "node": {
+    "id": "pi_dev",
+    "purpose": "Specialized isolated scout, architect, implementation worker, and source-read-only reviewer agents for caller-selected working directories.",
+    "tags": [
+      "agents",
+      "software-development"
+    ]
   },
   "provides": [
     {
@@ -140,41 +20,35 @@
         ],
         "properties": {
           "task": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "cwd": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "context": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "thinkingLevel": {
             "type": "string",
-            "enum": [
-              "off",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ]
+            "maxLength": 65536
           },
           "scope": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "questions": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           }
-        }
+        },
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -189,7 +63,8 @@
         ],
         "properties": {
           "summary": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "files": {
             "type": "array",
@@ -201,16 +76,20 @@
               ],
               "properties": {
                 "path": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "line": {
                   "type": "integer"
                 },
                 "relevance": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "codePaths": {
             "type": "array",
@@ -223,48 +102,63 @@
               ],
               "properties": {
                 "from": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "to": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "relationship": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "findings": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "unresolvedQuestions": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "diagnostics": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           }
-        }
-      },
-      "execution": {
-        "type": "agent",
-        "agent": "scout"
+        },
+        "additionalProperties": false
       },
       "effects": [
-        "file_read",
-        "model_network"
-      ]
+        "fs.read",
+        "model.call"
+      ],
+      "traits": {
+        "determinism": "best_effort",
+        "replay": "safe",
+        "interaction": "request_response",
+        "cancellable": true
+      }
     },
     {
       "name": "architect",
@@ -276,35 +170,27 @@
         ],
         "properties": {
           "task": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "cwd": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "context": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "thinkingLevel": {
             "type": "string",
-            "enum": [
-              "off",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ]
+            "maxLength": 65536
           },
           "constraints": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           }
-        }
+        },
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -319,13 +205,16 @@
         ],
         "properties": {
           "summary": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "assumptions": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "plan": {
             "type": "array",
@@ -341,13 +230,17 @@
                   "type": "integer"
                 },
                 "action": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "rationale": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "risks": {
             "type": "array",
@@ -359,39 +252,52 @@
               ],
               "properties": {
                 "risk": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "mitigation": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "acceptanceCriteria": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "diagnostics": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           }
-        }
-      },
-      "execution": {
-        "type": "agent",
-        "agent": "architect"
+        },
+        "additionalProperties": false
       },
       "effects": [
-        "file_read",
-        "model_network"
-      ]
+        "fs.read",
+        "model.call",
+        "protocol.invoke"
+      ],
+      "traits": {
+        "determinism": "best_effort",
+        "replay": "safe",
+        "interaction": "request_response",
+        "cancellable": true
+      }
     },
     {
       "name": "worker",
@@ -403,41 +309,35 @@
         ],
         "properties": {
           "task": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "cwd": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "context": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "thinkingLevel": {
             "type": "string",
-            "enum": [
-              "off",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ]
+            "maxLength": 65536
           },
           "plan": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "acceptanceCriteria": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           }
-        }
+        },
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -451,7 +351,8 @@
         ],
         "properties": {
           "summary": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "changedFiles": {
             "type": "array",
@@ -463,13 +364,17 @@
               ],
               "properties": {
                 "path": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "change": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "tests": {
             "type": "array",
@@ -482,7 +387,8 @@
               ],
               "properties": {
                 "command": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "status": {
                   "type": "string",
@@ -490,41 +396,54 @@
                     "passed",
                     "failed",
                     "skipped"
-                  ]
+                  ],
+                  "maxLength": 65536
                 },
                 "output": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "unresolvedIssues": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "diagnostics": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           }
-        }
-      },
-      "execution": {
-        "type": "agent",
-        "agent": "worker"
+        },
+        "additionalProperties": false
       },
       "effects": [
-        "file_read",
-        "file_write",
-        "process_execution",
-        "model_network"
-      ]
+        "fs.read",
+        "fs.write",
+        "process.spawn",
+        "model.call",
+        "protocol.invoke"
+      ],
+      "traits": {
+        "determinism": "best_effort",
+        "replay": "unsafe",
+        "interaction": "request_response",
+        "cancellable": true
+      }
     },
     {
       "name": "reviewer",
@@ -536,50 +455,47 @@
         ],
         "properties": {
           "task": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "cwd": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "context": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "thinkingLevel": {
             "type": "string",
-            "enum": [
-              "off",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ]
+            "maxLength": 65536
           },
           "diff": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "commit": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "range": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "acceptanceCriteria": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "testExpectations": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           }
-        }
+        },
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -593,7 +509,8 @@
         ],
         "properties": {
           "summary": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "verdict": {
             "type": "string",
@@ -601,7 +518,8 @@
               "approve",
               "request_changes",
               "blocked"
-            ]
+            ],
+            "maxLength": 65536
           },
           "findings": {
             "type": "array",
@@ -622,22 +540,28 @@
                     "medium",
                     "low",
                     "info"
-                  ]
+                  ],
+                  "maxLength": 65536
                 },
                 "file": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "line": {
                   "type": "integer"
                 },
                 "explanation": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "recommendedFix": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "testResults": {
             "type": "array",
@@ -650,7 +574,8 @@
               ],
               "properties": {
                 "command": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "status": {
                   "type": "string",
@@ -658,34 +583,45 @@
                     "passed",
                     "failed",
                     "skipped"
-                  ]
+                  ],
+                  "maxLength": 65536
                 },
                 "output": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "diagnostics": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           }
-        }
-      },
-      "execution": {
-        "type": "agent",
-        "agent": "reviewer"
+        },
+        "additionalProperties": false
       },
       "effects": [
-        "file_read",
-        "process_execution",
-        "model_network"
-      ]
+        "fs.read",
+        "process.spawn",
+        "model.call",
+        "protocol.invoke"
+      ],
+      "traits": {
+        "determinism": "best_effort",
+        "replay": "safe",
+        "interaction": "request_response",
+        "cancellable": true
+      }
     },
     {
       "name": "security_reviewer",
@@ -697,56 +633,55 @@
         ],
         "properties": {
           "task": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "cwd": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "context": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "thinkingLevel": {
             "type": "string",
-            "enum": [
-              "off",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ]
+            "maxLength": 65536
           },
           "diff": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "commit": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "range": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "acceptanceCriteria": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "testExpectations": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "securityFocus": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           }
-        }
+        },
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -761,7 +696,8 @@
         ],
         "properties": {
           "summary": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           },
           "verdict": {
             "type": "string",
@@ -769,7 +705,8 @@
               "approve",
               "request_changes",
               "blocked"
-            ]
+            ],
+            "maxLength": 65536
           },
           "threatModel": {
             "type": "array",
@@ -782,16 +719,21 @@
               ],
               "properties": {
                 "asset": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "threat": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "mitigation": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "findings": {
             "type": "array",
@@ -814,13 +756,16 @@
                     "medium",
                     "low",
                     "info"
-                  ]
+                  ],
+                  "maxLength": 65536
                 },
                 "area": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "file": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "line": {
                   "type": "integer"
@@ -832,16 +777,21 @@
                     "low",
                     "medium",
                     "high"
-                  ]
+                  ],
+                  "maxLength": 65536
                 },
                 "explanation": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "recommendedFix": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "testResults": {
             "type": "array",
@@ -854,7 +804,8 @@
               ],
               "properties": {
                 "command": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 },
                 "status": {
                   "type": "string",
@@ -862,34 +813,45 @@
                     "passed",
                     "failed",
                     "skipped"
-                  ]
+                  ],
+                  "maxLength": 65536
                 },
                 "output": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 65536
                 }
-              }
-            }
+              },
+              "additionalProperties": false
+            },
+            "maxItems": 256
           },
           "diagnostics": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "maxLength": 65536
+            },
+            "maxItems": 256
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 65536
           }
-        }
-      },
-      "execution": {
-        "type": "agent",
-        "agent": "security_reviewer"
+        },
+        "additionalProperties": false
       },
       "effects": [
-        "file_read",
-        "process_execution",
-        "model_network"
-      ]
+        "fs.read",
+        "process.spawn",
+        "model.call",
+        "protocol.invoke"
+      ],
+      "traits": {
+        "determinism": "best_effort",
+        "replay": "safe",
+        "interaction": "request_response",
+        "cancellable": true
+      }
     }
   ]
 }

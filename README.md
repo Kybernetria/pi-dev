@@ -1,110 +1,82 @@
 # pi-dev
 
-A Pi extension exposing five isolated software-development agents through **pi-protocol 0.2.0**:
+A Pi extension exposing five canonical protocol contracts backed by private software-development agents:
 
-- `pi_dev.scout` — fast, concise, read-only codebase exploration
+- `pi_dev.scout` — fast read-only exploration
 - `pi_dev.architect` — read-only analysis and planning
-- `pi_dev.worker` — edits the requested cwd directly and runs tests
-- `pi_dev.reviewer` — source-read-only review with constrained git/test execution
-- `pi_dev.security_reviewer` — source-read-only security review with threat modeling and constrained git/test execution
+- `pi_dev.worker` — direct implementation and tests in the requested cwd
+- `pi_dev.reviewer` — source-read-only review with constrained commands
+- `pi_dev.security_reviewer` — source-read-only threat and security review
 
-There is intentionally no orchestrator or git-worktree management. Callers compose the roles themselves.
-
-## Install
-
-```bash
-npm install /path/to/pi-dev
-```
-
-Add the package to Pi's packages/extensions configuration as appropriate for your installation. The package declares `pi.extensions: ["./extension.ts"]`; loading it registers the node on the shared protocol fabric. It does not register package-specific Pi tools.
+There is intentionally no hidden orchestrator or worktree manager. Callers discover and compose roles through protocol contracts.
 
 ## Invoke
 
-Use the generic `protocol` tool:
+Use the generic protocol tool’s single call shape:
 
 ```json
-{"target":"pi_dev.scout","input":{"task":"Locate the token refresh flow","cwd":"/repo","scope":["src"],"questions":["Where are refresh tokens stored?","Which handler starts renewal?"]}}
+{"op":"call","target":"pi_dev.scout","input":{"task":"Locate the token refresh flow","cwd":"/repo","scope":["src"],"questions":["Where is renewal started?"]}}
 ```
 
 ```json
-{"target":"pi_dev.architect","input":{"task":"Plan token refresh support","cwd":"/repo","constraints":["Preserve the public API"]}}
+{"op":"call","target":"pi_dev.worker","input":{"task":"Implement token refresh","cwd":"/repo","plan":["Add flow","Add tests"],"acceptanceCriteria":["Tests pass"]}}
 ```
 
-```json
-{"target":"pi_dev.worker","input":{"task":"Implement token refresh support","cwd":"/repo","plan":["Add refresh flow","Add tests"],"acceptanceCriteria":["Existing and new tests pass"]}}
-```
-
-```json
-{"target":"pi_dev.reviewer","input":{"task":"Review token refresh support","cwd":"/repo","range":"main...HEAD","acceptanceCriteria":["No token leakage"],"testExpectations":["Unit tests pass"]}}
-```
-
-```json
-{"target":"pi_dev.security_reviewer","input":{"task":"Review token refresh support for security risks","cwd":"/repo","range":"main...HEAD","securityFocus":["token handling","authorization"]}}
-```
-
-The equivalent programmatic call is:
+Host code should use a host-minted principal and attenuated grant:
 
 ```ts
-const result = await fabric.invoke({
-  nodeId: "pi_dev",
-  provide: "architect",
-  input: { task: "Plan the change", cwd: "/repo" },
+const principal = fabric.mintPrincipal("workflow:development", "agent");
+const result = await fabric.invokeAs(principal, "pi_dev.architect", {
+  task: "Plan the change",
+  cwd: "/repo",
+}, {
+  grant: { targets: ["pi_dev.architect", "pi_dev.scout"], maxDepth: 4, maxInvocations: 16 },
 });
-if (!result.ok) console.error(result.error.code, result.error.message);
 ```
 
-All roles return strict JSON plus a human-readable `message`. See `pi.protocol.json` for complete input/output schemas.
+Caller identity, correlation, model choice, thinking level, deadline, confirmation, and registration generation are not model input fields.
 
-## Composition
+## Contract and deployment
 
-A caller can invoke:
+`pi.protocol.json` is a canonical schemaVersion 1 public contract containing only node/provide descriptions, bounded schemas, effects, and traits. Every object schema rejects undeclared fields.
 
-1. `scout` for quick file locations and code-path context when the implementation area is not yet known.
-2. `architect` to obtain an ordered plan and acceptance criteria.
-3. `worker` with that plan and criteria.
-4. `reviewer` and/or `security_reviewer` against the resulting diff/range.
-5. Optionally, `worker` again with the review findings as `context` and acceptance criteria.
+Private `pi.agents.json` owns:
 
-Ephemeral invocations create a fresh in-memory child AgentSession bound to the requested cwd. Protocol `continue`/`end` session controls reuse and dispose the same role session through the standard SDK adapter.
+- contained prompt files
+- exact Pi tool allowlists
+- model class/specific model and thinking policy
+- attenuated protocol access (`architect`, `worker`, and reviewers may call only `pi_dev.scout`)
+- bounded continuation TTL and session counts
+
+The extension admits both files, creates SDK executors with `createPiSdkAgentExecutorsFromProfiles()`, and atomically installs exact provide-name bindings through `fabric.install()`. Public discovery never reveals the private profiles.
 
 ## Safety
 
-- Cwds are resolved to canonical existing directories before session creation.
-- Scout gets only `read`, `grep`, `find`, and `ls`; it is instructed to search narrowly and return concise, verified findings.
-- Architect gets the same read-only file tools plus `protocol`; its caller-side protocol policy allows only `pi_dev.scout`.
-- Worker gets read/search tools plus `bash`, `edit`, `write`, and restricted `protocol` access to `pi_dev.scout`; it modifies the cwd directly.
-- Reviewers have no general shell or mutation tool. They receive restricted `protocol` access to `pi_dev.scout`; `review_command` uses no shell and only supports constrained git status/diff/show and standard npm/pnpm/yarn/bun test execution. Tests can still create normal build/cache artifacts.
-- Child sessions load no extensions, skills, prompt templates, or themes, preventing recursive self-loading. The restricted protocol tool is injected explicitly; project context files may still be read.
-- `pi.protocol.json` is the sole authority for prompts, exact tool allowlists, model defaults, thinking defaults, schemas, protocol access, and effects. Role modules only shape role-specific request details.
-- Agent execution goes through the standard Pi SDK protocol adapter, including session continuation and model/input/delta/output runtime telemetry.
-- Caller cancellation aborts the child session. Agent calls have no internal wall-clock deadline, so substantial work is not discarded merely for taking longer than expected. Large prompt and reviewer-command output is truncated with diagnostics; oversized model responses are rejected rather than returning untrusted partial JSON.
+- Cwds resolve to existing canonical directories before session creation.
+- Scout has only `read`, `grep`, `find`, and `ls`.
+- Architect adds only the `protocol` tool with scout-only authority.
+- Worker adds mutation and shell tools; it is the only file-writing role.
+- Reviewers use `review_command`, which avoids a general shell and allows constrained git/test commands.
+- Sessions load no project extensions, skills, prompt templates, or themes.
+- Cancellation reaches child sessions; non-cooperative outcomes remain unknown rather than being falsely reported terminal.
+- Prompt/response sizes are bounded and truncation is diagnosed.
+- Output is strict schema-compatible JSON without presentation data.
 
-Review tasks and worker tasks can execute project code. Only use trusted repositories and review commands/scripts.
+Project tests and worker tasks can execute repository code. Use trusted repositories.
 
-## Configuration
+## Host configuration
 
-Every request may set `model` and `thinkingLevel`. If omitted, configuration is resolved in this order:
-
-- Model: request value, `PI_DEV_<ROLE>_MODEL`, `PI_DEV_MODEL`, then the role default. Scout uses `openai-codex/gpt-5.3-codex-spark`; architect, worker, reviewer, and security reviewer use `openai-codex/gpt-5.6-sol`.
-- Thinking: request value, `PI_DEV_<ROLE>_THINKING`, `PI_DEV_THINKING`, then the role default. Worker uses `medium`; all other roles use `high`.
-
-Agent calls do not impose an internal wall-clock timeout. Callers retain explicit cancellation through the protocol invocation signal. Limits can be configured with `PI_DEV_MAX_PROMPT_CHARS` and `PI_DEV_MAX_RESPONSE_CHARS`.
-
-## Add another agent
-
-1. Add its request/output types in `src/types.ts`.
-2. Add a minimal `AgentDefinition` under `src/roles/` that only shapes role-specific request details.
-3. Export the definition from `src/roles/index.ts` and add it to the definition map in `protocol/agents.ts`.
-4. Declare the agent's prompt, exact tools, model/thinking defaults, protocol access, and complete schemas/effects in `pi.protocol.json`; do not duplicate them in role code.
-5. If needed, add a narrowly scoped custom-tool factory to `src/runtime/pi-runner.ts`; do not broaden another role's manifest allowlist.
-6. Add registration, contract, restriction, telemetry, session, cancellation, and malformed-output tests, then run `npm run typecheck && npm test`.
-
-The shared runtime derives operational behavior from the resolved manifest and requires no role switch statement.
+Model policy is private. Trusted operators may override it with `PI_DEV_<ROLE>_MODEL`, `PI_DEV_MODEL`, `PI_DEV_<ROLE>_THINKING`, or `PI_DEV_THINKING`. Model input cannot override deployment policy. Prompt and response bounds use `PI_DEV_MAX_PROMPT_CHARS` and `PI_DEV_MAX_RESPONSE_CHARS`.
 
 ## Development
 
 ```bash
 npm install
+npm run protocol:generate
+npm run protocol:check
 npm run typecheck
 npm test
+git diff --check
 ```
+
+To add a role, add request/output types and role shaping, a public provide contract, a private profile/prompt, an exact executor binding, and focused admission, authority, cancellation, schema, telemetry, and session tests.

@@ -7,14 +7,21 @@ import {
   type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import * as ProtocolRuntime from "@kybernetria/pi-protocol";
-import type { CurrentProtocolInvocationContext, ProtocolAgentSpec } from "@kybernetria/pi-protocol";
+import {
+  ensureProtocolFabric,
+  runWithProtocolInvocationContextValue,
+  type CurrentProtocolInvocationContext,
+} from "@kybernetria/pi-protocol/core";
+import { createProtocolTool } from "@kybernetria/pi-protocol/pi";
+import type { ResolvedPiAgentProfile } from "@kybernetria/pi-protocol/sdk/agent-profile";
 import {
   UNIVERSAL_PROTOCOL_AWARENESS_PROMPT,
 } from "@kybernetria/pi-protocol/sdk/agent-session";
-import type {
-  PiSdkAgentSessionEventLike,
-  PiSdkAgentSessionLike,
+import {
+  runWithPiSdkProtocolControlContext,
+  type PiSdkAgentSessionEventLike,
+  type PiSdkAgentSessionLike,
+  type PiSdkProtocolControlContext,
 } from "@kybernetria/pi-protocol/sdk";
 import type { AgentDefinition } from "./definition.ts";
 import type { ChildAgentRunner, PreparedAgentInput } from "./run-agent.ts";
@@ -26,7 +33,7 @@ const CUSTOM_TOOLS = new Set(["review_command", "protocol"]);
 export async function createPiChildAgentSession(
   prepared: PreparedAgentInput,
   definition: AgentDefinition<any, any>,
-  agent: ProtocolAgentSpec,
+  agent: ResolvedPiAgentProfile,
   runner?: ChildAgentRunner,
 ): Promise<PiSdkAgentSessionLike> {
   if (runner) return createRunnerBackedSession(prepared, definition, agent, runner);
@@ -39,7 +46,6 @@ export async function createPiChildAgentSession(
 
   const hasProtocol = tools.includes("protocol");
   const prompt = resolvedSystemPrompt(definition.role, agent);
-  const promptMode = agent.systemPrompt?.mode ?? "append";
   const resourceLoader = new DefaultResourceLoader({
     cwd: prepared.cwd,
     agentDir,
@@ -47,22 +53,25 @@ export async function createPiChildAgentSession(
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
-    ...(promptMode === "replace" ? { systemPromptOverride: () => prompt } : {}),
+    systemPromptOverride: () => prompt,
     appendSystemPromptOverride: (base: string[]) => appendUnique(base, [
       ...(hasProtocol ? [UNIVERSAL_PROTOCOL_AWARENESS_PROMPT] : []),
-      ...(promptMode === "append" ? [prompt] : []),
     ]),
   });
   await resourceLoader.reload();
 
   let activeProtocolContext: CurrentProtocolInvocationContext | undefined;
+  let activeProtocolControl: PiSdkProtocolControlContext | undefined;
   const lifetimeController = new AbortController();
   const customTools: ToolDefinition[] = [];
   if (tools.includes("review_command")) {
     customTools.push(createReviewCommandTool(prepared.cwd, lifetimeController.signal));
   }
   if (hasProtocol) {
-    customTools.push(createPolicyAwareProtocolTool(() => activeProtocolContext));
+    customTools.push(createPolicyAwareProtocolTool(
+      () => activeProtocolContext,
+      () => activeProtocolControl,
+    ));
   }
 
   const { session } = await createAgentSession({
@@ -84,13 +93,14 @@ export async function createPiChildAgentSession(
       if (context.abortSignal.aborted) lifetimeController.abort(context.abortSignal.reason);
       else context.abortSignal.addEventListener("abort", () => lifetimeController.abort(context.abortSignal?.reason), { once: true });
     }
-  }, definition.role);
+  }, definition.role, (control) => { activeProtocolControl = control; });
 }
 
 function createPolicyAwareProtocolTool(
   currentContext: () => CurrentProtocolInvocationContext | undefined,
+  currentControl: () => PiSdkProtocolControlContext | undefined,
 ): ToolDefinition {
-  const tool = ProtocolRuntime.createProtocolTool(ProtocolRuntime.ensureProtocolFabric());
+  const tool = createProtocolTool(ensureProtocolFabric());
   return {
     ...tool,
     async execute(
@@ -101,9 +111,10 @@ function createPolicyAwareProtocolTool(
     ) {
       const execute = () => tool.execute(toolCallId, input, signal, onUpdate);
       const context = currentContext();
-      return context
-        ? ProtocolRuntime.runWithProtocolInvocationContextValue(context, execute)
+      const withContext = () => context
+        ? runWithProtocolInvocationContextValue(context, execute)
         : execute();
+      return runWithPiSdkProtocolControlContext(currentControl(), withContext);
     },
   } as ToolDefinition;
 }
@@ -111,7 +122,7 @@ function createPolicyAwareProtocolTool(
 function createRunnerBackedSession(
   prepared: PreparedAgentInput,
   definition: AgentDefinition<any, any>,
-  agent: ProtocolAgentSpec,
+  agent: ResolvedPiAgentProfile,
   runner: ChildAgentRunner,
 ): PiSdkAgentSessionLike {
   const listeners = new Set<(event: PiSdkAgentSessionEventLike) => void>();
@@ -159,6 +170,7 @@ export function wrapRealSession(
   lifetimeController: AbortController,
   setContext: (context: CurrentProtocolInvocationContext | undefined) => void,
   role = "agent",
+  setControlContext: (context: PiSdkProtocolControlContext | undefined) => void = () => undefined,
 ): PiSdkAgentSessionLike {
   const outputListeners = new Set<(event: PiSdkAgentSessionEventLike) => void>();
   return {
@@ -205,6 +217,7 @@ export function wrapRealSession(
       session.dispose();
     },
     setProtocolInvocationContext: setContext,
+    setProtocolControlContext: setControlContext,
     // Introspection is intentionally outside the protocol session interface and
     // exists for conformance tests of the manifest-owned allowlist.
     getActiveToolNames: () => session.getActiveToolNames(),
@@ -240,26 +253,25 @@ function assistantResult(message: unknown): { text: string; stopReason?: string;
   };
 }
 
-function exactManifestTools(role: string, agent: ProtocolAgentSpec): string[] {
-  if (!agent.tools) throw new Error(`Manifest agent ${role} must declare an exact tools allowlist`);
+function exactManifestTools(role: string, agent: ResolvedPiAgentProfile): string[] {
+  if (!agent.tools) throw new Error(`Private agent ${role} must declare an exact tools allowlist`);
   const tools = [...agent.tools];
   for (const name of tools) {
-    if (!BUILTIN_TOOLS.has(name) && !CUSTOM_TOOLS.has(name)) throw new Error(`Manifest agent ${role} declares unsupported tool ${name}`);
+    if (!BUILTIN_TOOLS.has(name) && !CUSTOM_TOOLS.has(name)) throw new Error(`Private agent ${role} declares unsupported tool ${name}`);
   }
   return tools;
 }
 
-function resolvedSystemPrompt(role: string, agent: ProtocolAgentSpec): string {
-  const prompt = agent.systemPrompt;
-  if (!prompt || typeof prompt.text !== "string") throw new Error(`Manifest agent ${role} must have a resolved system prompt`);
-  return prompt.text;
+function resolvedSystemPrompt(role: string, agent: ResolvedPiAgentProfile): string {
+  if (!agent.promptText) throw new Error(`Private agent ${role} must have a resolved system prompt`);
+  return agent.promptText;
 }
 
 function assertExactTools(role: string, session: AgentSession, expected: string[]): void {
   const actual = session.getActiveToolNames().slice().sort();
   const sortedExpected = expected.slice().sort();
   if (actual.length !== sortedExpected.length || actual.some((name, index) => name !== sortedExpected[index])) {
-    throw new Error(`Manifest tools for ${role} were not applied: expected ${JSON.stringify(sortedExpected)}, active ${JSON.stringify(actual)}`);
+    throw new Error(`Private tools for ${role} were not applied: expected ${JSON.stringify(sortedExpected)}, active ${JSON.stringify(actual)}`);
   }
 }
 

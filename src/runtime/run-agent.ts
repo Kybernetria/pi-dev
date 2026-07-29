@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ProtocolAgentSpec, ProvideSpec } from "@kybernetria/pi-protocol";
+import type { ProtocolProvideContract } from "@kybernetria/pi-protocol/contract";
+import type { ResolvedPiAgentProfile } from "@kybernetria/pi-protocol/sdk/agent-profile";
 import type { AgentOutputBase, AgentRequestBase, ThinkingLevel } from "../types.ts";
 import type { AgentDefinition } from "./definition.ts";
 
@@ -43,8 +44,8 @@ export interface PreparedAgentInput<Request extends AgentRequestBase = AgentRequ
 export async function prepareAgentInput<Request extends AgentRequestBase, Output extends AgentOutputBase>(
   definition: AgentDefinition<Request, Output>,
   request: Request,
-  agent: ProtocolAgentSpec,
-  provide: ProvideSpec,
+  agent: ResolvedPiAgentProfile,
+  provide: ProtocolProvideContract,
   dependencies: RunAgentDependencies,
 ): Promise<PreparedAgentInput<Request>> {
   validateBaseRequest(request);
@@ -63,15 +64,13 @@ export async function prepareAgentInput<Request extends AgentRequestBase, Output
   if (promptTruncation.truncated) diagnostics.push(`Model prompt was truncated to ${promptLimit} characters.`);
   const prompt = `Complete this request. Return only valid JSON matching outputContract.\n${promptTruncation.text}\n${promptTruncation.truncated ? `[DIAGNOSTIC: input was truncated at ${promptLimit} characters; report this in diagnostics.]` : ""}`;
 
-  const thinkingLevel = request.thinkingLevel
-    ?? parseThinking(process.env[`PI_DEV_${definition.role.toUpperCase()}_THINKING`])
+  const thinkingLevel = parseThinking(process.env[`PI_DEV_${definition.role.toUpperCase()}_THINKING`])
     ?? parseThinking(process.env.PI_DEV_THINKING)
-    ?? agent.modelHint?.thinkingLevel
+    ?? agent.modelPolicy?.thinkingLevel
     ?? "medium";
-  const model = request.model
-    ?? process.env[`PI_DEV_${definition.role.toUpperCase()}_MODEL`]
+  const model = process.env[`PI_DEV_${definition.role.toUpperCase()}_MODEL`]
     ?? process.env.PI_DEV_MODEL
-    ?? nonEmpty(agent.modelHint?.specific);
+    ?? nonEmpty(agent.modelPolicy?.specific);
 
   return {
     role: definition.role,

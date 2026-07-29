@@ -1,35 +1,35 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { parseProtocolManifest, type ProtocolProvideContract } from "@kybernetria/pi-protocol/contract";
 import {
-  createProtocolNamespace,
-  parseProtocolManifest,
-  resolveManifestSystemPrompts,
-  type ProtocolAgentSpec,
-  type ProvideSpec,
-} from "@kybernetria/pi-protocol";
+  parsePiAgentProfiles,
+  resolvePiAgentProfiles,
+  type ResolvedPiAgentProfile,
+} from "@kybernetria/pi-protocol/sdk/agent-profile";
 import type { AgentRole } from "./definition.ts";
 
 export const MANIFEST_BASE_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
-const rawManifest = parseProtocolManifest(
+export const protocolDefinition = parseProtocolManifest(
   readFileSync(fileURLToPath(new URL("../../pi.protocol.json", import.meta.url)), "utf8"),
+  { allowLegacyV02: false },
 );
 
-/** The resolved protocol manifest is the sole runtime configuration source. */
-export const protocolManifest = resolveManifestSystemPrompts(rawManifest, {
-  manifestBaseDir: MANIFEST_BASE_DIR,
-});
-export const protocolNamespace = createProtocolNamespace(protocolManifest);
+export const agentProfiles = resolvePiAgentProfiles(
+  parsePiAgentProfiles(readFileSync(fileURLToPath(new URL("../../pi.agents.json", import.meta.url)), "utf8")),
+  MANIFEST_BASE_DIR,
+);
 
-export function agentSpecFor(role: AgentRole): ProtocolAgentSpec {
-  const agent = protocolManifest.agents?.[role];
-  if (!agent) throw new Error(`Manifest is missing agent ${role}`);
-  return agent;
+export const protocolNodeId = protocolDefinition.manifest.node.id;
+
+export function agentProfileFor(role: AgentRole): ResolvedPiAgentProfile {
+  const profile = agentProfiles.agents[role];
+  if (!profile) throw new Error(`Private deployment profile is missing agent ${role}`);
+  return profile;
 }
 
-export function provideSpecFor(role: AgentRole): ProvideSpec {
-  const target = protocolNamespace.agent(role);
-  const provide = protocolManifest.provides.find((candidate) => candidate.name === target.provide);
-  if (!provide) throw new Error(`Manifest namespace lost agent provide ${role}`);
+export function provideContractFor(role: AgentRole): ProtocolProvideContract {
+  const provide = protocolDefinition.manifest.provides.find((candidate) => candidate.name === role);
+  if (!provide) throw new Error(`Public contract is missing provide ${role}`);
   return provide;
 }
