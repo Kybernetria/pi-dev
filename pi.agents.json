@@ -81,7 +81,7 @@
         "grep",
         "find",
         "ls",
-        "review_command",
+        "bash",
         "protocol"
       ],
       "modelPolicy": {
@@ -108,7 +108,7 @@
         "grep",
         "find",
         "ls",
-        "review_command",
+        "bash",
         "protocol"
       ],
       "modelPolicy": {
