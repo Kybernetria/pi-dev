@@ -5,14 +5,13 @@ import {
   parsePiAgentProfiles,
   resolvePiAgentProfiles,
   type ResolvedPiAgentProfile,
-} from "@kybernetria/pi-protocol/sdk/agent-profile";
+} from "@kybernetria/pi-protocol/pi/agents";
 import type { AgentRole } from "./definition.ts";
 
 export const MANIFEST_BASE_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
 export const protocolDefinition = parseProtocolManifest(
   readFileSync(fileURLToPath(new URL("../../pi.protocol.json", import.meta.url)), "utf8"),
-  { allowLegacyV02: false },
 );
 
 export const agentProfiles = resolvePiAgentProfiles(

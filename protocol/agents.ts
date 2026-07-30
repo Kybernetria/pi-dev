@@ -1,5 +1,5 @@
 import type { ProtocolAgentExecutor } from "@kybernetria/pi-protocol/core";
-import { createPiSdkAgentExecutorsFromProfiles } from "@kybernetria/pi-protocol/sdk/agent-session";
+import { createPiSdkAgentExecutorsFromProfiles } from "@kybernetria/pi-protocol/pi/agents";
 import { architectDefinition, reviewerDefinition, scoutDefinition, securityReviewerDefinition, workerDefinition } from "../src/roles/index.ts";
 import type { AgentDefinition, AgentRole } from "../src/runtime/definition.ts";
 import { agentProfiles, protocolDefinition, provideContractFor } from "../src/runtime/manifest.ts";

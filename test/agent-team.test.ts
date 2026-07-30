@@ -1,13 +1,17 @@
+async function invokeResult(fabric: { invokeTracked(request: any): Promise<any> }, request: any): Promise<any> {
+  return (await fabric.invokeTracked(request)).result;
+}
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createProtocolFabric,
   type ProtocolInvocationContext,
-  type ProtocolRuntimeEvent,
+  type ExecutionEventV1,
 } from "@kybernetria/pi-protocol/core";
 import { parseProtocolManifest } from "@kybernetria/pi-protocol/contract";
-import type { PiSdkAgentSessionEventLike, PiSdkAgentSessionLike } from "@kybernetria/pi-protocol/sdk";
-import { createPiSdkAgentExecutorsFromProfiles } from "@kybernetria/pi-protocol/sdk/agent-session";
+import type { PiSdkAgentSessionEventLike, PiSdkAgentSessionLike } from "@kybernetria/pi-protocol/pi/agents";
+import { createPiSdkAgentExecutorsFromProfiles } from "@kybernetria/pi-protocol/pi/agents";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import profilesJson from "../pi.agents.json" with { type: "json" };
 import { createAgentExecutors } from "../protocol/agents.ts";
@@ -17,7 +21,7 @@ import { agentProfiles, provideContractFor, protocolDefinition } from "../src/ru
 import { parseAgentOutput, prepareAgentInput, type PreparedAgentInput } from "../src/runtime/run-agent.ts";
 import type { AgentOutputBase, AgentRequestBase } from "../src/types.ts";
 
-const definition = parseProtocolManifest(manifest, { allowLegacyV02: false });
+const definition = parseProtocolManifest(manifest);
 const roles = ["scout", "architect", "worker", "reviewer", "security_reviewer"] as const;
 type Role = typeof roles[number];
 type SessionRun = (role: Role, prompt: string, session: FakeSession) => string | Promise<string>;
@@ -150,7 +154,7 @@ test("private profiles statically own tools, model, thinking, grants, and contin
 test("all role executors produce schema-compatible structured output", async () => {
   const fabric = registered();
   for (const role of roles) {
-    const result = await fabric.invoke({ nodeId: "pi_dev", provide: role, input: { task: "Do it" } });
+    const result = await invokeResult(fabric, { nodeId: "pi_dev", provide: role, input: { task: "Do it" } });
     assert.equal(result.ok, true, JSON.stringify(result));
     if (result.ok) assert.equal(typeof (result.output as { message: unknown }).message, "string");
   }
@@ -185,21 +189,21 @@ test("output schemas reject missing and malformed role-specific output", async (
 async function invokeRaw(role: Role, output: unknown) {
   const fabric = createProtocolFabric();
   fabric.install(definition, { agents: Object.fromEntries(roles.map((name) => [name, () => name === role ? output : JSON.parse(outputFor(name))])) });
-  return fabric.invoke({ nodeId: "pi_dev", provide: role, input: { task: "Validate" } });
+  return invokeResult(fabric, { nodeId: "pi_dev", provide: role, input: { task: "Validate" } });
 }
 
 test("runtime rejects missing, empty, and removed dynamic deployment fields", async () => {
   const fabric = registered();
-  const missing = await fabric.invoke({ nodeId: "pi_dev", provide: "architect", input: {} });
+  const missing = await invokeResult(fabric, { nodeId: "pi_dev", provide: "architect", input: {} });
   assert.equal(missing.ok, false);
   if (!missing.ok) assert.equal(missing.error.code, "INPUT_INVALID");
-  const empty = await fabric.invoke({ nodeId: "pi_dev", provide: "architect", input: { task: "" } });
+  const empty = await invokeResult(fabric, { nodeId: "pi_dev", provide: "architect", input: { task: "" } });
   assert.equal(empty.ok, false);
   if (!empty.ok) assert.equal(empty.error.code, "EXECUTION_FAILED");
-  const cwd = await fabric.invoke({ nodeId: "pi_dev", provide: "architect", input: { task: "Plan", cwd: "/tmp" } });
+  const cwd = await invokeResult(fabric, { nodeId: "pi_dev", provide: "architect", input: { task: "Plan", cwd: "/tmp" } });
   assert.equal(cwd.ok, false);
   if (!cwd.ok) assert.equal(cwd.error.code, "INPUT_INVALID");
-  const model = await fabric.invoke({ nodeId: "pi_dev", provide: "architect", input: { task: "Plan", model: "forged" } });
+  const model = await invokeResult(fabric, { nodeId: "pi_dev", provide: "architect", input: { task: "Plan", model: "forged" } });
   assert.equal(model.ok, false);
   if (!model.ok) assert.equal(model.error.code, "INPUT_INVALID");
 });
@@ -219,17 +223,15 @@ test("prepared prompts contain task details but no deployment configuration", ()
 });
 
 test("executor emits standard model and output telemetry", async () => {
-  const events: ProtocolRuntimeEvent[] = [];
+  const events: ExecutionEventV1[] = [];
   const fabric = registered();
-  fabric.subscribeRuntimeEventRecorder((event) => { events.push(event); });
-  const result = await fabric.invoke({ nodeId: "pi_dev", provide: "architect", input: { task: "Plan" } });
+  fabric.subscribeExecution((event) => { events.push(event); });
+  const result = await invokeResult(fabric, { nodeId: "pi_dev", provide: "architect", input: { task: "Plan" } });
   assert.equal(result.ok, true);
-  assert.deepEqual(events.map((event) => event.type), [
-    "executor_session_model", "executor_input_snapshot", "executor_output_delta", "executor_output_snapshot",
-  ]);
+  assert.deepEqual(events.map((event) => event.type), ["executor.session", "executor.output_delta"]);
   const model = events[0];
-  assert.equal(model?.type, "executor_session_model");
-  if (model?.type === "executor_session_model") {
+  assert.equal(model?.type, "executor.session");
+  if (model?.type === "executor.session") {
     assert.equal(model.model, profilesJson.agents.architect.modelPolicy.specific);
     assert.equal(model.thinkingLevel, profilesJson.agents.architect.modelPolicy.thinkingLevel);
   }
@@ -240,12 +242,12 @@ test("caller cancellation disposes the standard executor session", async () => {
   const didStart = new Promise<void>((resolve) => { started = resolve; });
   const fabric = registered((_role, _prompt) => new Promise<string>(() => { started(); }));
   const controller = new AbortController();
-  const pending = fabric.invoke({ nodeId: "pi_dev", provide: "reviewer", input: { task: "Wait" }, abortSignal: controller.signal });
+  const pending = invokeResult(fabric, { nodeId: "pi_dev", provide: "reviewer", input: { task: "Wait" }, abortSignal: controller.signal });
   await didStart;
   controller.abort();
   const result = await pending;
   assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.error.code, "CANCELLED");
+  if (!result.ok) assert.equal(result.error.code, "OUTCOME_UNKNOWN");
 });
 
 test("malformed, failed, and oversized output fail clearly", async () => {
