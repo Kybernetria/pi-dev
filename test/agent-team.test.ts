@@ -139,7 +139,7 @@ test("manifest exposes exactly five deployment-neutral agent contracts", () => {
 test("private profiles statically own tools, model, thinking, grants, and continuation", () => {
   assert.deepEqual(profilesJson.agents.scout.tools, ["read", "grep", "find", "ls"]);
   assert.equal(profilesJson.agents.scout.modelPolicy.class, "fast");
-  assert.equal(profilesJson.agents.scout.modelPolicy.thinkingLevel, "medium");
+  assert.equal(profilesJson.agents.scout.modelPolicy.thinkingLevel, "low");
   assert.deepEqual(profilesJson.agents.worker.tools, ["read", "grep", "find", "ls", "bash", "edit", "write", "protocol"]);
   for (const role of ["architect", "worker", "reviewer", "security_reviewer"] as const) {
     assert.deepEqual(profilesJson.agents[role].protocolAccess.targets, ["pi_dev.scout"]);
